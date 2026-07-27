@@ -529,7 +529,21 @@ class PosCashier extends Page
                              && !empty($company->midtrans_server_key);
 
         if ($isMidtransPayment) {
-            // A. BUAT TRANSAKSI STATUS PENDING
+            // 1. Ambil & bulatkan Grand Total ke integer
+            $grandTotal = (int) round($this->getGrandTotal());
+
+            // 2. Validasi agar tidak mengirim nominal 0 ke Midtrans
+            if ($grandTotal < 1) {
+                Notification::make()
+                    ->title('Total pembayaran QRIS harus minimal Rp 1!')
+                    ->body('Silakan periksa kembali keranjang atau diskon yang diterapkan.')
+                    ->danger()
+                    ->send();
+                    
+                return;
+            }
+
+            // 3. Buat Transaksi Status Pending
             $transaction = Transaction::create([
                 'company_id' => $companyId,
                 'outlet_id' => $outletId,
@@ -540,33 +554,32 @@ class PosCashier extends Page
                 'transaction_number' => 'POS-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3))),
                 'type' => 'sale', 
                 'in_out' => 'in', 
-                'status' => 'pending', // Status awal PENDING
+                'status' => 'pending',
                 'payment_method' => $this->paymentMethod,
                 'subtotal' => $this->getSubtotal(),
                 'discount' => $this->discount ?: 0,
                 'points_used' => $this->pointsToRedeem ?: 0,
                 'point_discount_amount' => $this->getPointDiscountAmount(),
-                'grand_total' => $this->getGrandTotal(),
-                'amount_paid' => $this->getGrandTotal(),
+                'grand_total' => $grandTotal,
+                'amount_paid' => $grandTotal,
                 'amount_change' => 0,
             ]);
 
-            // Panggil Midtrans Service untuk membuat Snap Token
+            // 4. Kirim data yang valid ke Midtrans
             try {
                 $transactionDetails = [
                     'order_id' => $transaction->transaction_number,
-                    'gross_amount' => (int) $this->getGrandTotal(),
+                    'gross_amount' => $grandTotal, // Menggunakan variabel $grandTotal yang sudah divalidasi
                 ];
 
                 $snapToken = MidtransService::createTransaction($company, $transactionDetails);
 
-                // Tutup modal pilihan pembayaran & picu Pop-up Snap di frontend
                 $this->dispatch('close-payment-modal');
                 $this->dispatch('trigger-midtrans-snap', snapToken: $snapToken, transactionId: $transaction->id);
                 return;
 
             } catch (\Exception $e) {
-                $transaction->delete(); // Batalkan jika API Midtrans error
+                $transaction->delete(); // Batalkan transaksi jika API Midtrans gagal
                 Notification::make()->title('Gagal terhubung ke Midtrans: ' . $e->getMessage())->danger()->send();
                 return;
             }
