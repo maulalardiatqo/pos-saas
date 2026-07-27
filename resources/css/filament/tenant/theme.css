@@ -2,3 +2,30 @@
 
 @source '../../../../app/Filament/Tenant';
 @source '../../../../resources/views/filament/tenant';
+
+.fi-simple-layout {
+    color-scheme: light !important;
+}
+
+.fi-simple-layout .fi-fo-field-label-col,
+.fi-simple-layout .fi-fo-field-label-col label,
+.fi-simple-layout .fi-fo-field-label-content,
+.fi-simple-layout .fi-fo-field,
+.fi-simple-layout .fi-fo-field-content-col {
+    color: #0a2540 !important;
+}
+
+.fi-simple-layout .fi-input-wrp {
+    background-color: #ffffff !important;
+    border-color: #d1d5db !important;
+}
+
+.fi-simple-layout .fi-input-wrp input,
+.fi-simple-layout .fi-fo-text-input {
+    color: #0a2540 !important;
+    background-color: transparent !important;
+}
+
+.fi-simple-layout .fi-input-wrp input::placeholder {
+    color: #9ca3af !important;
+}

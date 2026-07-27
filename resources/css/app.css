@@ -9,12 +9,19 @@
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
 }
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus,
-input:-webkit-autofill:active {
-    -webkit-text-fill-color: #0a2540 !important;
-    -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
-    box-shadow: 0 0 0 1000px #ffffff inset !important;
-    transition: background-color 5000s ease-in-out 0s;
+#tenant-login-page,
+#tenant-login-page * {
+    color-scheme: light;
+}
+
+#tenant-login-page label,
+#tenant-login-page .fi-fo-field-wrp-label,
+#tenant-login-page input,
+#tenant-login-page .fi-input {
+    color: #0a2540 !important;
+    background-color: #ffffff !important;
+}
+
+#tenant-login-page input::placeholder {
+    color: #9ca3af !important;
 }

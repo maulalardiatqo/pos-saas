@@ -9,8 +9,7 @@ use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
-use Filament\Widgets\AccountWidget;
-use Filament\Widgets\FilamentInfoWidget;
+use Filament\Enums\ThemeMode;  
 use App\Filament\Tenant\Pages\Login;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -25,7 +24,8 @@ class TenantPanelProvider extends PanelProvider
         return $panel
             ->id('tenant')
             ->path('tenant')
-            ->login(Login::class)
+            ->login(Login::class)                     
+            ->defaultThemeMode(ThemeMode::Light)  
             ->tenant(Company::class)
             ->colors([
                 'primary' => Color::Amber,

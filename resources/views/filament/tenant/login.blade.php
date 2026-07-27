@@ -1,5 +1,5 @@
 <x-filament-panels::page.simple>
-    <div class="fixed inset-0 z-50 bg-white flex flex-col">
+    <div id="tenant-login-page" class="fixed inset-0 z-50 bg-white flex flex-col">
 
         {{-- ============ BARIS UTAMA (scrollable) ============ --}}
         <div class="flex-1 overflow-y-auto md:flex">
@@ -89,7 +89,7 @@
 
                     <div class="text-center text-sm text-gray-600">
                         Belum punya akun?
-                        <a href="#" class="font-extrabold text-[#005b9f] hover:text-[#00d8ea]">Konsultasi Gratis →</a>
+                        <a href="https://wa.me/6289619166878" target="_blank" class="font-extrabold text-[#005b9f] hover:text-[#00d8ea]">Konsultasi Gratis →</a>
                     </div>
                 </div>
             </div>
