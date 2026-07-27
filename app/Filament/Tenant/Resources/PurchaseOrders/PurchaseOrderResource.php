@@ -17,8 +17,8 @@ class PurchaseOrderResource extends Resource
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-document-text';
     protected static string|\UnitEnum|null $navigationGroup = 'Transaksi';
-    protected static ?string $navigationLabel = 'Purchase Order (PO)';
-    protected static ?string $pluralLabel = 'Daftar Purchase Order';
+    protected static ?string $navigationLabel = 'Belanhja (PO)';
+    protected static ?string $pluralLabel = 'Daftar Belanja';
     protected static ?string $slug = 'purchase-orders';
 
     public static function shouldRegisterNavigation(): bool
