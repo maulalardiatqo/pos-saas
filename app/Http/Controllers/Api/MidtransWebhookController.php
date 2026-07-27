@@ -49,15 +49,41 @@ class MidtransWebhookController extends Controller
         if ($computedSignature !== $signatureKey) {
             return response()->json(['message' => 'Signature Key tidak sah / Akses ditolak'], 403);
         }
-
+        $paymentType = $payload['payment_type'] ?? 'unknown';
         if ($transactionStatus == 'settlement' || $transactionStatus == 'capture') {
-            DB::transaction(function () use ($transaction) {
-                $transaction->update(['status' => 'completed']);
-                
-                Account::where('id', $transaction->account_id)->increment('balance', $transaction->grand_total);
-            });
+            
+            // PENCEGAHAN EKSEKUSI GANDA (Idempotency)
+            if ($transaction->status !== 'completed') {
+                DB::transaction(function () use ($transaction, $grossAmount, $paymentType) {
+                    
+                    $adminFee = 0;
+                    $gross = (float) $grossAmount;
 
-            Log::info("Webhook Midtrans: Transaksi {$orderId} berhasil diubah menjadi Completed.");
+                    if ($paymentType === 'qris' || $paymentType === 'gopay') {
+                        $adminFee = $gross * 0.007; // Potongan QRIS / GoPay = 0.7%
+                    } elseif ($paymentType === 'bank_transfer' || $paymentType === 'echannel') {
+                        $adminFee = 4000; // Potongan Virtual Account = Flat Rp 4.000
+                    } elseif ($paymentType === 'shopeepay') {
+                        $adminFee = $gross * 0.02; // Potongan ShopeePay = 2%
+                    } elseif ($paymentType === 'credit_card') {
+                        $adminFee = ($gross * 0.02) + 2000; // Kartu Kredit = 2% + Rp 2.000
+                    }
+                    
+                    // Pastikan tidak ada desimal pecah
+                    $adminFee = round($adminFee);
+                    
+                    $netAmount = $gross - $adminFee;
+
+                    $transaction->update([
+                        'status' => 'completed',
+                        'admin_fee' => $adminFee, 
+                    ]);
+                    
+                    Account::where('id', $transaction->account_id)->increment('balance', $netAmount);
+                });
+            }
+
+            Log::info("Webhook Midtrans: Transaksi {$orderId} Lunas. Gross: {$grossAmount}, Fee: Potongan dihitung.");
 
         } elseif (in_array($transactionStatus, ['cancel', 'deny', 'expire'])) {
             $transaction->update(['status' => 'failed']);

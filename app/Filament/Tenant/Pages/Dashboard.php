@@ -65,15 +65,18 @@ class Dashboard extends Page
         $currQ = $baseQ($start, $end);
         $prevQ = $baseQ($prevStart, $prevEnd);
 
-        // 3. KALKULASI KPI SUPER (Hanya Penjualan)
+        // =========================================================
+        // 3. KALKULASI KPI SUPER (PENJUALAN & LABA)
+        // =========================================================
         $salesData = (clone $currQ)->where('type', 'sale')->where('status', 'completed')
-            ->selectRaw('SUM(grand_total) as total_rev, COUNT(id) as total_trx')->first();
+            ->selectRaw('SUM(grand_total) as total_rev, SUM(admin_fee) as total_admin_fee, COUNT(id) as total_trx')->first();
         
-        $totalSales = (float) $salesData->total_rev;
+        $totalSales = (float) $salesData->total_rev; // Omset (Gross) tetap utuh
+        $currAdminFee = (float) $salesData->total_admin_fee; // Ambil total potongan admin
         $totalTrx = (int) $salesData->total_trx;
         $avgTrx = $totalTrx > 0 ? $totalSales / $totalTrx : 0;
 
-        // Ambil Laba Kotor & Qty Terjual dari transaction_items
+        // Ambil Laba Kotor (Gross Profit) dari transaction_items
         $itemCurrent = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->where('transactions.company_id', $tenantId)->where('transactions.type', 'sale')->where('transactions.status', 'completed')
@@ -83,14 +86,16 @@ class Dashboard extends Page
             ->selectRaw('SUM(transaction_items.qty) as total_qty, SUM(transaction_items.subtotal - (transaction_items.cost_price * transaction_items.qty)) as profit')
             ->first();
 
-        $totalProfit = (float) $itemCurrent->profit;
+        // 🟢 PERBAIKAN: Laba Bersih = Laba Kotor Barang - Potongan Admin Midtrans
+        $totalProfit = (float) $itemCurrent->profit - $currAdminFee; 
         $totalItems = (int) $itemCurrent->total_qty;
 
         // Data Previous (Untuk %)
         $prevSalesData = (clone $prevQ)->where('type', 'sale')->where('status', 'completed')
-            ->selectRaw('SUM(grand_total) as total_rev, COUNT(id) as total_trx')->first();
+            ->selectRaw('SUM(grand_total) as total_rev, SUM(admin_fee) as total_admin_fee, COUNT(id) as total_trx')->first();
         
         $prevSales = (float) $prevSalesData->total_rev;
+        $prevAdminFee = (float) $prevSalesData->total_admin_fee;
         $prevTrx = (int) $prevSalesData->total_trx;
         $prevAvg = $prevTrx > 0 ? $prevSales / $prevTrx : 0;
 
@@ -101,7 +106,8 @@ class Dashboard extends Page
             ->selectRaw('SUM(transaction_items.qty) as total_qty, SUM(transaction_items.subtotal - (transaction_items.cost_price * transaction_items.qty)) as profit')
             ->first();
 
-        $prevProfit = (float) $itemPrev->profit;
+        // 🟢 PERBAIKAN: Laba Bersih Previous juga dikurangi Admin Fee
+        $prevProfit = (float) $itemPrev->profit - $prevAdminFee;
         $prevItems = (int) $itemPrev->total_qty;
 
         $pct = fn($c, $p) => $p > 0 ? round((($c - $p) / $p) * 100, 1) : ($c > 0 ? 100 : 0);
@@ -168,7 +174,7 @@ class Dashboard extends Page
             ->groupBy('products.id', 'products.name', 'products.image_url')->orderByDesc('total')->limit(5)->get();
 
         // =========================================================
-        // 6. PERBAIKAN: RINGKASAN KAS MENGGUNAKAN in_out & amount_paid
+        // 6. RINGKASAN KAS (TETAP AMAN KARENA HANYA CASH)
         // =========================================================
         $cashIn = (clone $currQ)
             ->where('in_out', 'in')
@@ -193,7 +199,7 @@ class Dashboard extends Page
                 'sales' => ['val' => $totalSales, 'prev' => $prevSales, 'pct' => $pct($totalSales, $prevSales)],
                 'trx' => ['val' => $totalTrx, 'prev' => $prevTrx, 'pct' => $pct($totalTrx, $prevTrx)],
                 'avg' => ['val' => $avgTrx, 'prev' => $prevAvg, 'pct' => $pct($avgTrx, $prevAvg)],
-                'profit' => ['val' => $totalProfit, 'prev' => $prevProfit, 'pct' => $pct($totalProfit, $prevProfit)],
+                'profit' => ['val' => $totalProfit, 'prev' => $prevProfit, 'pct' => $pct($totalProfit, $prevProfit)], // Laba sudah akurat
                 'items' => ['val' => $totalItems, 'prev' => $prevItems, 'pct' => $pct($totalItems, $prevItems)],
             ],
             'chartLabels' => $chartLabels,

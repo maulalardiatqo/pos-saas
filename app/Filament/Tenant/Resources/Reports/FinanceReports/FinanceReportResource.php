@@ -56,7 +56,7 @@ class FinanceReportResource extends Resource
                         'goodreceive'     => 'Penerimaan Barang',
                         'invoice'         => 'Invoice / Tagihan',
                         'asset_purchase'  => 'Pembelian Aset',
-                        'opening_balance' => 'Saldo Awal', // <-- DITAMBAHKAN DI SINI
+                        'opening_balance' => 'Saldo Awal',
                         default           => strtoupper($state),
                     })
                     ->color(fn ($record): string => $record->in_out === 'out' ? 'danger' : ($record->type === 'opening_balance' ? 'info' : 'success')),
@@ -66,18 +66,24 @@ class FinanceReportResource extends Resource
                     ->searchable()
                     ->toggleable(),
 
-                // MENGGUNAKAN GRAND TOTAL SEBAGAI ACUAN NILAI DOKUMEN / TRANSAKSI
                 Tables\Columns\TextColumn::make('grand_total')
                     ->label('Nominal Transaksi')
                     ->alignment(Alignment::End)
                     ->formatStateUsing(function ($record) {
                         $isOut = $record->in_out === 'out';
                         $prefix = $isOut ? '- Rp ' : '+ Rp ';
-                        
                         return $prefix . number_format((float)$record->grand_total, 0, ',', '.');
                     })
                     ->color(fn ($record) => $record->in_out === 'out' ? 'danger' : 'success')
                     ->weight('bold'),
+
+                // KOLOM BARU: MENAMPILKAN POTONGAN MIDTRANS
+                Tables\Columns\TextColumn::make('admin_fee')
+                    ->label('Biaya Admin (MDR)')
+                    ->alignment(Alignment::End)
+                    ->formatStateUsing(fn ($state) => $state > 0 ? '- Rp ' . number_format((float)$state, 0, ',', '.') : '-')
+                    ->color('danger')
+                    ->toggleable(),
             ])
             ->filters([
                 Tables\Filters\Filter::make('created_at')
@@ -103,7 +109,7 @@ class FinanceReportResource extends Resource
 
                 Tables\Filters\SelectFilter::make('type')
                     ->options([
-                        'opening_balance' => 'Saldo Awal (Modal)', // <-- DITAMBAHKAN DI SINI
+                        'opening_balance' => 'Saldo Awal (Modal)', 
                         'sale'            => 'Penjualan',
                         'revenue'         => 'Pemasukan Tambahan',
                         'expense'         => 'Pengeluaran',

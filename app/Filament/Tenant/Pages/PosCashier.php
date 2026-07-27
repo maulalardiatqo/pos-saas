@@ -529,11 +529,9 @@ class PosCashier extends Page
                              && !empty($company->midtrans_server_key);
 
         if ($isMidtransPayment) {
-            // 1. Bersihkan Grand Total dari karakter non-digit (menghindari bug format titik "50.000" jadi 50)
             $rawGrandTotal = $this->getGrandTotal();
             $cleanGrandTotal = (int) preg_replace('/[^0-9]/', '', (string) round($rawGrandTotal));
 
-            // 2. Validasi nominal minimal Rp 1
             if ($cleanGrandTotal < 1) {
                 Notification::make()
                     ->title('Gagal Transaksi QRIS')
@@ -544,21 +542,18 @@ class PosCashier extends Page
                 return;
             }
 
-            // 3. Buat Order ID Unik Baru (Tambahkan timestamp agar tidak bentrok dengan cache Midtrans)
             $uniqueOrderId = 'POS-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
 
-            // 4. Susun Rincian Produk (Item Details) untuk dikirim ke Midtrans
             $itemDetails = [];
             foreach ($this->cart as $item) {
                 $itemDetails[] = [
                     'id'       => (string) $item['id'],
                     'price'    => (int) preg_replace('/[^0-9]/', '', (string) round($item['price'])),
                     'quantity' => (int) $item['qty'],
-                    'name'     => substr($item['name'], 0, 50), // Midtrans membatasi nama item max 50 karakter
+                    'name'     => substr($item['name'], 0, 50),
                 ];
             }
 
-            // Hitung total semua diskon jika ada, lalu tambahkan sebagai item potongan
             $totalDiscount = $this->getMembershipDiscountAmount() 
                            + $this->getVoucherDiscountAmount() 
                            + (float)($this->discount ?: 0) 
@@ -573,7 +568,7 @@ class PosCashier extends Page
                 ];
             }
 
-            // 5. Buat Record Transaksi di Database dengan Status Pending
+            // BUAT RECORD TRANSAKSI PENDING
             $transaction = Transaction::create([
                 'company_id'            => $companyId,
                 'outlet_id'             => $outletId,
@@ -595,14 +590,29 @@ class PosCashier extends Page
                 'amount_change'         => 0,
             ]);
 
-            // 6. Panggil Service Midtrans
+            // SIMPAN RINCIAN BARANG SEKARANG (Agar aman jika browser mati)
+            foreach ($this->cart as $item) {
+                TransactionItem::create([
+                    'company_id'        => $companyId,
+                    'transaction_id'    => $transaction->id,
+                    'product_id'        => $item['id'],
+                    'uom_id'            => $item['uom_id'],
+                    'qty'               => $item['qty'],
+                    'conversion_factor' => $item['conversion_factor'],
+                    'base_qty'          => $item['qty'] * $item['conversion_factor'],
+                    'cost_price'        => ($item['cost'] ?? 0) * $item['conversion_factor'], 
+                    'selling_price'     => $item['price'],
+                    'subtotal'          => $item['price'] * $item['qty'],
+                ]);
+            }
+
+            // Panggil Service Midtrans
             try {
                 $transactionDetails = [
                     'order_id'     => $uniqueOrderId,
                     'gross_amount' => $cleanGrandTotal,
                 ];
 
-                // Kirim juga $itemDetails agar rincian belanja muncul di layar QRIS Midtrans
                 $snapToken = MidtransService::createTransaction($company, $transactionDetails, $itemDetails);
 
                 $this->dispatch('close-payment-modal');
@@ -610,7 +620,7 @@ class PosCashier extends Page
                 return;
 
             } catch (\Exception $e) {
-                $transaction->delete(); // Batalkan transaksi jika API Midtrans menolak
+                $transaction->delete(); // Batalkan transaksi
                 Notification::make()
                     ->title('Gagal terhubung ke Midtrans')
                     ->body($e->getMessage() . " (Gross Amount dikirim: Rp {$cleanGrandTotal})")
@@ -623,25 +633,41 @@ class PosCashier extends Page
         // 3. PEMBAYARAN TUNAI / MANUAL (LANGSUNG COMPLETED)
         $transaction = DB::transaction(function () use ($outletId, $companyId) {
             $newTrx = Transaction::create([
-                'company_id' => $companyId,
-                'outlet_id' => $outletId,
-                'user_id' => auth()->id(),
-                'pos_session_id' => (filament()->getTenant()->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
-                'customer_id' => $this->customerId ?: null,
-                'account_id' => $this->accountId, 
-                'transaction_number' => 'SALE-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(2))),
-                'type' => 'sale', 
-                'in_out' => 'in', 
-                'status' => 'completed',
-                'payment_method' => $this->paymentMethod,
-                'subtotal' => $this->getSubtotal(),
-                'discount' => $this->discount ?: 0,
-                'points_used' => $this->pointsToRedeem ?: 0,
+                'company_id'            => $companyId,
+                'outlet_id'             => $outletId,
+                'user_id'               => auth()->id(),
+                'pos_session_id'        => (filament()->getTenant()->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
+                'customer_id'           => $this->customerId ?: null,
+                'account_id'            => $this->accountId, 
+                'transaction_number'    => 'SALE-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(2))),
+                'type'                  => 'sale', 
+                'in_out'                => 'in', 
+                'status'                => 'completed',
+                'payment_method'        => $this->paymentMethod,
+                'subtotal'              => $this->getSubtotal(),
+                'discount'              => $this->discount ?: 0,
+                'points_used'           => $this->pointsToRedeem ?: 0,
                 'point_discount_amount' => $this->getPointDiscountAmount(),
-                'grand_total' => $this->getGrandTotal(),
-                'amount_paid' => $this->amountPaid ?: $this->getGrandTotal(),
-                'amount_change' => $this->getChangeAmount(),
+                'grand_total'           => $this->getGrandTotal(),
+                'amount_paid'           => $this->amountPaid ?: $this->getGrandTotal(),
+                'amount_change'         => $this->getChangeAmount(),
             ]);
+
+            // SIMPAN RINCIAN BARANG SEKARANG
+            foreach ($this->cart as $item) {
+                TransactionItem::create([
+                    'company_id'        => $companyId,
+                    'transaction_id'    => $newTrx->id,
+                    'product_id'        => $item['id'],
+                    'uom_id'            => $item['uom_id'],
+                    'qty'               => $item['qty'],
+                    'conversion_factor' => $item['conversion_factor'],
+                    'base_qty'          => $item['qty'] * $item['conversion_factor'],
+                    'cost_price'        => ($item['cost'] ?? 0) * $item['conversion_factor'], 
+                    'selling_price'     => $item['price'],
+                    'subtotal'          => $item['price'] * $item['qty'],
+                ]);
+            }
 
             // Jalankan potong stok, poin, & jurnal kas
             $this->fulfillTransaction($newTrx);
@@ -676,28 +702,49 @@ class PosCashier extends Page
     /**
      * Helper untuk potong stok, jurnal kas, voucher, & poin
      */
+    /**
+     * Helper untuk potong stok, jurnal kas, voucher, & poin
+     */
     protected function fulfillTransaction(Transaction $transaction)
     {
         $outletId = $transaction->outlet_id;
         $companyId = $transaction->company_id;
 
-        // Tambah Saldo Rekening
-        \App\Models\Account::where('id', $transaction->account_id)->increment('balance', $transaction->grand_total);
+        // 1. HITUNG POTONGAN ADMIN FEE & TAMBAH SALDO
+        $adminFee = 0;
+        $gross = (float) $transaction->grand_total;
+        $method = $transaction->payment_method;
 
-        // Session Kasir
+        if (in_array($method, ['qris', 'ewallet'])) {
+            $adminFee = $gross * 0.007;
+        } elseif ($method === 'transfer') {
+            $adminFee = 4000;
+        } elseif ($method === 'credit_card') {
+            $adminFee = ($gross * 0.02) + 2000;
+        }
+
+        $adminFee = round($adminFee);
+        $netAmount = $gross - $adminFee; 
+
+        if ($adminFee > 0) {
+            DB::table('transactions')->where('id', $transaction->id)->update(['admin_fee' => $adminFee]);
+        }
+
+        \App\Models\Account::where('id', $transaction->account_id)->increment('balance', $netAmount);
+
+
+        // 2. SESSION KASIR, VOUCHER, & POINT
         if ($this->activeSession) {
             $this->activeSession->increment('total_sales', $transaction->grand_total);
-            if ($transaction->payment_method === 'cash') {
+            if ($method === 'cash') {
                 $this->activeSession->increment('total_cash_sales', $transaction->grand_total);
             }
         }
 
-        // Kupon Voucher
         if ($this->appliedVoucher) {
             \App\Models\Voucher::where('id', $this->appliedVoucher['id'])->increment('used_count');
         }
 
-        // Point History (Redeem & Earn)
         $company = filament()->getTenant();
         if ($transaction->points_used > 0 && $transaction->customer_id) {
             \App\Models\PointHistory::create([
@@ -726,31 +773,22 @@ class PosCashier extends Page
             }
         }
 
-        // Simpan Item & Potong Stok
-        foreach ($this->cart as $item) {
-            $totalBaseQtyDeducted = $item['qty'] * $item['conversion_factor'];
-            $isService = ($item['item_type'] ?? 'goods') === 'service';
-            $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
+        // 3. POTONG STOK MEMBACA DARI DATABASE (TransactionItem) BUKAN DARI CART
+        $items = TransactionItem::where('transaction_id', $transaction->id)->get();
 
-            TransactionItem::create([
-                'company_id' => $companyId,
-                'transaction_id' => $transaction->id,
-                'product_id' => $item['id'],
-                'uom_id' => $item['uom_id'],
-                'qty' => $item['qty'],
-                'conversion_factor' => $item['conversion_factor'],
-                'base_qty' => $totalBaseQtyDeducted,
-                'cost_price' => ($item['cost'] ?? 0) * $item['conversion_factor'], 
-                'selling_price' => $item['price'],
-                'subtotal' => $item['price'] * $item['qty'],
-            ]);
+        foreach ($items as $trxItem) {
+            $product = \App\Models\Product::find($trxItem->product_id);
+            if (!$product) continue;
+
+            $isService = ($product->item_type === 'service');
+            $isBundle = in_array($product->product_type, ['bundle', 'recipe']);
 
             if ($isBundle) {
-                $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
+                $components = DB::table('product_components')->where('parent_product_id', $product->id)->get();
                 foreach ($components as $comp) {
                     $child = DB::table('products')->where('id', $comp->child_product_id)->first();
                     if ($child && $child->item_type === 'goods') {
-                        $qtyToDeduct = $totalBaseQtyDeducted * (float)$comp->quantity;
+                        $qtyToDeduct = $trxItem->base_qty * (float)$comp->quantity;
                         $lastMovement = StockMovement::where('product_id', $comp->child_product_id)->where('outlet_id', $outletId)->latest()->first();
                         $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
 
@@ -769,19 +807,19 @@ class PosCashier extends Page
                     }
                 }
             } elseif (!$isService) {
-                $lastMovement = StockMovement::where('product_id', $item['id'])->where('outlet_id', $outletId)->latest()->first();
+                $lastMovement = StockMovement::where('product_id', $product->id)->where('outlet_id', $outletId)->latest()->first();
                 $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
 
                 StockMovement::create([
                     'company_id' => $companyId,
                     'outlet_id' => $outletId,
-                    'product_id' => $item['id'],
+                    'product_id' => $product->id,
                     'type' => 'sale', 
                     'reference_type' => Transaction::class,
                     'reference_id' => $transaction->id,
-                    'quantity' => $totalBaseQtyDeducted,
+                    'quantity' => $trxItem->base_qty,
                     'balance_before' => $balanceBefore,
-                    'balance_after' => $balanceBefore - $totalBaseQtyDeducted,
+                    'balance_after' => $balanceBefore - $trxItem->base_qty,
                     'remarks' => 'Penjualan POS Nota: ' . $transaction->transaction_number,
                 ]);
             }

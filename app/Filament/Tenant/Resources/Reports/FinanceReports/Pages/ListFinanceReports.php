@@ -38,7 +38,7 @@ class ListFinanceReports extends ListRecords
 
         $outlets = $isOwner ? \App\Models\Outlet::where('company_id', $tenantId)->get() : collect();
 
-        // QUERY MENGGUNAKAN IN_OUT & GRAND_TOTAL
+        // QUERY MENGGUNAKAN IN_OUT, GRAND_TOTAL, DAN ADMIN_FEE
         $baseQ = function ($from, $to) use ($tenantId, $isOwner, $user) {
             return DB::table('transactions')
                 ->where('company_id', $tenantId)
@@ -53,12 +53,16 @@ class ListFinanceReports extends ListRecords
         $currQ = $baseQ($start, $end);
         $prevQ = $baseQ($prevStart, $prevEnd);
 
+        // =======================================================
         // -- 1. KEUANGAN CURRENT (PERIODE INI) --
+        // =======================================================
         
-        // TOTAL KAS MASUK & KELUAR (Termasuk Saldo Awal) -> Untuk Cashflow
         $currIn = (clone $currQ)->where('in_out', 'in')->sum('grand_total');
         $currOut = (clone $currQ)->where('in_out', 'out')->sum('grand_total');
-        $currNetCash = $currIn - $currOut;
+        $currAdminFee = (clone $currQ)->sum('admin_fee'); // TOTAL POTONGAN MIDTRANS
+
+        // Arus Kas Bersih (Uang Real) = Uang Masuk - Pengeluaran - Potongan Midtrans
+        $currNetCash = $currIn - $currOut - $currAdminFee;
 
         // PENDAPATAN MURNI (Kecualikan Saldo Awal) -> Untuk Laba Rugi
         $currPendapatan = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')->sum('grand_total');
@@ -74,22 +78,25 @@ class ListFinanceReports extends ListRecords
             ->first();
 
         $currHpp = (float) $itemCurr->hpp;
-        // Semua pengeluaran selain HPP dianggap Beban Operasional (misal bayar listrik, aset, dll)
-        $currBebanOps = $currOut; 
+        
+        // Semua pengeluaran (Out) + Biaya Admin Payment Gateway dianggap sebagai Beban Operasional
+        $currBebanOps = $currOut + $currAdminFee; 
         $currTotalBeban = $currHpp + $currBebanOps;
         
-        // Laba dihitung dari Pendapatan Murni, BUKAN Total Kas Masuk
+        // Laba dihitung dari Pendapatan Murni dikurangi seluruh Beban (HPP + Ops + Admin Fee)
         $currLaba = $currPendapatan - $currTotalBeban;
         $currMargin = $currPendapatan > 0 ? ($currLaba / $currPendapatan) * 100 : 0;
 
+        // =======================================================
         // -- 2. KEUANGAN PREVIOUS (PERIODE LALU UNTUK PERSENTASE) --
+        // =======================================================
         
-        // TOTAL KAS MASUK & KELUAR (Termasuk Saldo Awal)
         $prevIn = (clone $prevQ)->where('in_out', 'in')->sum('grand_total');
         $prevOut = (clone $prevQ)->where('in_out', 'out')->sum('grand_total');
-        $prevNetCash = $prevIn - $prevOut;
+        $prevAdminFee = (clone $prevQ)->sum('admin_fee');
 
-        // PENDAPATAN MURNI (Kecualikan Saldo Awal)
+        $prevNetCash = $prevIn - $prevOut - $prevAdminFee;
+
         $prevPendapatan = (clone $prevQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')->sum('grand_total');
         
         $itemPrev = DB::table('transaction_items')
@@ -102,25 +109,29 @@ class ListFinanceReports extends ListRecords
             ->first();
 
         $prevHpp = (float) $itemPrev->hpp;
-        $prevBebanOps = $prevOut;
+        $prevBebanOps = $prevOut + $prevAdminFee;
         $prevTotalBeban = $prevHpp + $prevBebanOps;
         $prevLaba = $prevPendapatan - $prevTotalBeban;
         $prevMargin = $prevPendapatan > 0 ? ($prevLaba / $prevPendapatan) * 100 : 0;
 
         $pct = fn($c, $p) => $p > 0 ? round((($c - $p) / $p) * 100, 1) : ($c > 0 ? 100 : 0);
 
+        // =======================================================
         // -- 3. CHART DATA (GRAFIK GARIS P&L) --
+        // =======================================================
         $chartLabels = [];
         $chartPendapatan = [];
         $chartBeban = [];
         $chartLaba = [];
 
-        // Di grafik, KITA KECUALIKAN opening_balance agar garis chart tidak rusak melonjak tajam
         $trendIn = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')
             ->selectRaw("DATE(created_at) as label, SUM(grand_total) as total")->groupBy('label')->pluck('total', 'label');
             
         $trendOut = (clone $currQ)->where('in_out', 'out')
             ->selectRaw("DATE(created_at) as label, SUM(grand_total) as total")->groupBy('label')->pluck('total', 'label');
+
+        $trendAdminFee = (clone $currQ)
+            ->selectRaw("DATE(created_at) as label, SUM(admin_fee) as total")->groupBy('label')->pluck('total', 'label');
 
         $trendHpp = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
@@ -140,8 +151,10 @@ class ListFinanceReports extends ListRecords
             $dIn = (float) ($trendIn[$dateStr] ?? 0);
             $dOut = (float) ($trendOut[$dateStr] ?? 0);
             $dHpp = (float) ($trendHpp[$dateStr] ?? 0); 
+            $dAdmin = (float) ($trendAdminFee[$dateStr] ?? 0); 
             
-            $dailyBeban = $dOut + $dHpp; 
+            // Pengeluaran harian kini termasuk Potongan Midtrans harian
+            $dailyBeban = $dOut + $dHpp + $dAdmin; 
             
             $chartPendapatan[] = $dIn;
             $chartBeban[] = $dailyBeban;
@@ -150,8 +163,9 @@ class ListFinanceReports extends ListRecords
             $cursor->addDay();
         }
 
+        // =======================================================
         // -- 4. DONUT CHART (PROPORSI PEMASUKAN) --
-        // Kita KECUALIKAN opening_balance agar proporsi murni menampilkan sumber bisnis operasional
+        // =======================================================
         $proporsiData = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')
             ->selectRaw("type, SUM(grand_total) as total")
             ->groupBy('type')->orderByDesc('total')->get();
@@ -196,6 +210,7 @@ class ListFinanceReports extends ListRecords
                     'totalBeban' => $currTotalBeban,
                     'hpp'        => $currHpp,
                     'bebanOps'   => $currBebanOps,
+                    'adminFee'   => $currAdminFee, // DATA BARU DIKIRIM KE VIEW
                     'labaBersih' => $currLaba,
                     'cashIn'     => $currIn,
                     'cashOut'    => $currOut,
@@ -206,6 +221,7 @@ class ListFinanceReports extends ListRecords
                     'totalBeban' => $prevTotalBeban,
                     'hpp'        => $prevHpp,
                     'bebanOps'   => $prevBebanOps,
+                    'adminFee'   => $prevAdminFee, // DATA BARU DIKIRIM KE VIEW
                     'labaBersih' => $prevLaba,
                     'cashIn'     => $prevIn,
                     'cashOut'    => $prevOut,
