@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Tenant\Resources\PurchaseOrderResource;
+namespace App\Filament\Tenant\Resources\PurchaseOrders\Schemas;
 
 use Filament\Schemas\Schema;
 use Filament\Schemas\Components\Section;
@@ -15,7 +15,7 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Actions\Action;
 use Filament\Support\RawJs;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB; // Ensure DB facade is imported
+use Illuminate\Support\Facades\DB;
 
 class PurchaseOrderForm
 {

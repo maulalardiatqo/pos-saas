@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Tenant\Resources\TransactionResource\Pages;
+namespace App\Filament\Tenant\Resources\Transactions\Pages;
 
 use App\Filament\Tenant\Resources\Transactions\TransactionResource;
 use Filament\Resources\Pages\ListRecords;

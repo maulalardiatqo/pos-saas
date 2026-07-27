@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Hash;
 use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Builder;
 
-class UserForm
+class UsersForm
 {
     public static function configure(Schema $schema): Schema
     {

@@ -11,6 +11,7 @@ use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
+use App\Filament\Tenant\Pages\Login;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -24,7 +25,7 @@ class TenantPanelProvider extends PanelProvider
         return $panel
             ->id('tenant')
             ->path('tenant')
-            ->login()
+            ->login(Login::class)
             ->tenant(Company::class)
             ->colors([
                 'primary' => Color::Amber,
@@ -61,6 +62,7 @@ class TenantPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            ->brandName('Galaxy POS')
             ->authMiddleware([
                 Authenticate::class,
             ]);

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Tenant\Resources\PurchaseOrderResource;
+namespace App\Filament\Tenant\Resources\PurchaseOrders\Tables;
 
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
@@ -15,7 +15,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Illuminate\Database\Eloquent\Builder;
 
-class PurchaseOrderTable
+class PurchaseOrdersTable
 {
     public static function table(Table $table): Table
     {

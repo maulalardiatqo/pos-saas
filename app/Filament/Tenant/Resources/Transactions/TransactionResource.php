@@ -2,10 +2,10 @@
 
 namespace App\Filament\Tenant\Resources\Transactions;
 
-use App\Filament\Tenant\Resources\TransactionResource\Pages;
+use App\Filament\Tenant\Resources\Transactions\Pages;
 use App\Models\Transaction;
 use App\Models\StockMovement;
-use App\Models\Account; // <-- Jangan lupa panggil model Account
+use App\Models\Account; 
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
