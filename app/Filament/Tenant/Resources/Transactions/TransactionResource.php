@@ -144,7 +144,7 @@ class TransactionResource extends Resource
                             $companyId = filament()->getTenant()->id;
                             $outletId = $record->outlet_id;
 
-                            // 1. Ubah status nota menjadi voided
+                            // 1. Ubah status nota menjadi voided (cancelled)
                             $record->update(['status' => 'cancelled']);
 
                             // 2. Kembalikan stok untuk barang fisik
@@ -152,7 +152,9 @@ class TransactionResource extends Resource
                                 $isService = ($item->product?->item_type ?? 'goods') === 'service';
                                 
                                 if (!$isService) {
-                                    $lastMovement = StockMovement::where('product_id', $item->product_id)
+                                    // Jika bundle, Anda mungkin perlu melooping child components-nya (sesuaikan dengan logic di fulfillTransaction sebelumnya)
+                                    // Asumsi kode di bawah adalah untuk produk standar sesuai yang Anda berikan:
+                                    $lastMovement = \App\Models\StockMovement::where('product_id', $item->product_id)
                                         ->where('outlet_id', $outletId)
                                         ->latest()
                                         ->first();
@@ -160,7 +162,7 @@ class TransactionResource extends Resource
                                     $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
                                     $balanceAfter = $balanceBefore + (float) $item->base_qty;
 
-                                    StockMovement::create([
+                                    \App\Models\StockMovement::create([
                                         'company_id' => $companyId,
                                         'outlet_id' => $outletId,
                                         'product_id' => $item->product_id,
@@ -177,7 +179,8 @@ class TransactionResource extends Resource
 
                             // 3. Tarik poin dari pelanggan
                             if ($record->customer_id) {
-                                $earnedPoints = floor($record->grand_total / 10000);
+                                // (Sesuaikan nilai pembagi poin dengan setting loyalty Anda)
+                                $earnedPoints = floor($record->grand_total / 10000); 
                                 if ($earnedPoints > 0) {
                                     \App\Models\PointHistory::create([
                                         'company_id' => $companyId,
@@ -196,7 +199,11 @@ class TransactionResource extends Resource
                                 $session = \App\Models\PosSession::find($record->pos_session_id);
                                 if ($session && $session->status === 'open') {
                                     $session->decrement('total_sales', $record->grand_total);
-                                    $session->decrement('total_cash_sales', $record->grand_total);
+                                    
+                                    // 🟢 PERBAIKAN: Hanya kurangi cash_sales jika transaksinya memang tunai (Cash)
+                                    if ($record->payment_method === 'cash') {
+                                        $session->decrement('total_cash_sales', $record->grand_total);
+                                    }
                                 }
                             }
 
@@ -204,15 +211,17 @@ class TransactionResource extends Resource
                             // 5. TARIK KEMBALI SALDO DARI REKENING (ACCOUNT)
                             // ==========================================================
                             if ($record->account_id) {
-                                $account = Account::find($record->account_id);
+                                $account = \App\Models\Account::find($record->account_id);
                                 if ($account) {
-                                    // Transaksi POS = Pemasukan (in), jadi di-Void berarti ditarik/dikurangi (decrement)
-                                    $account->decrement('balance', $record->grand_total);
+                                    // 🟢 PERBAIKAN: Tarik hanya sebesar "Uang Bersih" (Net Amount) yang dulu masuk!
+                                    $netAmount = $record->grand_total - (float) $record->admin_fee;
+                                    
+                                    $account->decrement('balance', $netAmount);
                                 }
                             }
                         });
 
-                        Notification::make()
+                        \Filament\Notifications\Notification::make()
                             ->title('Transaksi berhasil di-Void!')
                             ->body('Stok barang, poin pelanggan, dan Saldo Kas telah dikembalikan.')
                             ->success()
