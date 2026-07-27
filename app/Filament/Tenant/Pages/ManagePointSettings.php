@@ -5,16 +5,11 @@ namespace App\Filament\Tenant\Pages;
 use Filament\Pages\Page;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Concerns\InteractsWithForms;
-
-// --- 1. CORE BARU FILAMENT (Pengganti Form) ---
 use Filament\Schemas\Schema;
-
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Grid;
-
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\TextInput;
-
 use Filament\Support\RawJs;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Notifications\Notification;
@@ -37,9 +32,27 @@ class ManagePointSettings extends Page implements HasForms
         return 'Pengaturan Poin Pelanggan';
     }
 
+    // --- 1. CEK FITUR UNTUK SIDEBAR NAVIGATION ---
+    public static function shouldRegisterNavigation(): bool
+    {
+        /** @var \App\Models\Company $company */
+        $company = filament()->getTenant();
+        
+        if (!$company) {
+            return false;
+        }
+
+        // Asumsi struktur JSON Anda ada di modul 'crm' dengan key 'point'
+        return $company->hasFeature('crm.point'); 
+    }
+
     public function mount(): void
     {
+        /** @var \App\Models\Company $company */
         $company = filament()->getTenant();
+
+        // --- 2. CEK FITUR UNTUK MENCEGAH AKSES URL LANGSUNG (403 Forbidden) ---
+        abort_if(! $company->hasFeature('crm.point'), 403, 'Fitur Poin Pelanggan tidak tersedia dalam paket toko Anda.');
 
         $this->form->fill([
             'is_loyalty_enabled'   => $company->is_loyalty_enabled,
@@ -49,16 +62,12 @@ class ManagePointSettings extends Page implements HasForms
         ]);
     }
 
-    // --- 4. SIGNATURE METHOD BARU ---
-    // Ubah parameter dari Form menjadi Schema
     public function form(Schema $schema): Schema
     {
         return $schema
-            // --- 5. PERUBAHAN UTAMA: ->components (bukan ->schema) ---
             ->components([
                 Section::make('Skema Loyalitas')
                     ->description('Atur bagaimana pelanggan mendapatkan dan menukarkan poin hadiah.')
-                    // Di dalam Section, tetap menggunakan ->schema()
                     ->schema([
                         Toggle::make('is_loyalty_enabled')
                             ->label('Aktifkan Fitur Poin Pelanggan')
