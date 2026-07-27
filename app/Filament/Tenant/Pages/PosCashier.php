@@ -8,6 +8,7 @@ use App\Models\Category;
 use App\Models\StockMovement;
 use App\Models\Transaction;
 use App\Models\TransactionItem;
+use App\Services\MidtransService;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use BackedEnum;
@@ -462,35 +463,34 @@ class PosCashier extends Page
     public function submitTransaction()
     {
         if (empty($this->cart)) {
-            \Filament\Notifications\Notification::make()->title('Keranjang kosong!')->danger()->send();
+            Notification::make()->title('Keranjang kosong!')->danger()->send();
             return;
         }
         
         if (empty($this->paymentMethod)) {
-            \Filament\Notifications\Notification::make()->title('Pilih metode pembayaran terlebih dahulu!')->warning()->send();
+            Notification::make()->title('Pilih metode pembayaran terlebih dahulu!')->warning()->send();
             return;
         }
 
         if (empty($this->accountId)) {
-            \Filament\Notifications\Notification::make()->title('Pilih rekening tujuan penerimaan uang!')->warning()->send();
+            Notification::make()->title('Pilih rekening tujuan penerimaan uang!')->warning()->send();
             return;
         }
 
         $outletId = auth()->user()->outlet_id;
-        $companyId = filament()->getTenant()?->id;
+        $company = filament()->getTenant();
+        $companyId = $company?->id;
 
+        // 1. CEK KECUKUPAN STOK
         $requiredStocks = []; 
-
         foreach ($this->cart as $item) {
             $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
             $isService = ($item['item_type'] ?? 'goods') === 'service';
 
             if ($isBundle) {
                 $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
-                
                 foreach ($components as $comp) {
                     $child = DB::table('products')->where('id', $comp->child_product_id)->first();
-                    
                     if ($child && $child->item_type === 'goods') {
                         $qtyNeeded = $item['qty'] * $item['conversion_factor'] * (float)$comp->quantity;
                         $requiredStocks[$child->id] = ($requiredStocks[$child->id] ?? 0) + $qtyNeeded;
@@ -513,7 +513,7 @@ class PosCashier extends Page
             
             if ($totalNeeded > $available) {
                 $prodName = DB::table('products')->where('id', $prodId)->value('name');
-                \Filament\Notifications\Notification::make()
+                Notification::make()
                     ->title("Stok komponen kurang!")
                     ->body("Dibutuhkan {$totalNeeded} pcs untuk bahan {$prodName}. Hanya tersedia {$available} pcs.")
                     ->danger()
@@ -524,8 +524,56 @@ class PosCashier extends Page
             }
         }
 
+        // 2. CEK APAPAH MENGGUNAKAN MIDTRANS (QRIS / ONLINE PAYMENT)
+        $isMidtransPayment = ($this->paymentMethod === 'qris' || $this->paymentMethod === 'ewallet') 
+                             && !empty($company->midtrans_server_key);
+
+        if ($isMidtransPayment) {
+            // A. BUAT TRANSAKSI STATUS PENDING
+            $transaction = Transaction::create([
+                'company_id' => $companyId,
+                'outlet_id' => $outletId,
+                'user_id' => auth()->id(),
+                'pos_session_id' => ($company->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
+                'customer_id' => $this->customerId ?: null,
+                'account_id' => $this->accountId, 
+                'transaction_number' => 'POS-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3))),
+                'type' => 'sale', 
+                'in_out' => 'in', 
+                'status' => 'pending', // Status awal PENDING
+                'payment_method' => $this->paymentMethod,
+                'subtotal' => $this->getSubtotal(),
+                'discount' => $this->discount ?: 0,
+                'points_used' => $this->pointsToRedeem ?: 0,
+                'point_discount_amount' => $this->getPointDiscountAmount(),
+                'grand_total' => $this->getGrandTotal(),
+                'amount_paid' => $this->getGrandTotal(),
+                'amount_change' => 0,
+            ]);
+
+            // Panggil Midtrans Service untuk membuat Snap Token
+            try {
+                $transactionDetails = [
+                    'order_id' => $transaction->transaction_number,
+                    'gross_amount' => (int) $this->getGrandTotal(),
+                ];
+
+                $snapToken = MidtransService::createTransaction($company, $transactionDetails);
+
+                // Tutup modal pilihan pembayaran & picu Pop-up Snap di frontend
+                $this->dispatch('close-payment-modal');
+                $this->dispatch('trigger-midtrans-snap', snapToken: $snapToken, transactionId: $transaction->id);
+                return;
+
+            } catch (\Exception $e) {
+                $transaction->delete(); // Batalkan jika API Midtrans error
+                Notification::make()->title('Gagal terhubung ke Midtrans: ' . $e->getMessage())->danger()->send();
+                return;
+            }
+        }
+
+        // 3. PEMBAYARAN TUNAI / MANUAL (LANGSUNG COMPLETED)
         $transaction = DB::transaction(function () use ($outletId, $companyId) {
-            
             $newTrx = Transaction::create([
                 'company_id' => $companyId,
                 'outlet_id' => $outletId,
@@ -547,133 +595,148 @@ class PosCashier extends Page
                 'amount_change' => $this->getChangeAmount(),
             ]);
 
-            \App\Models\Account::where('id', $this->accountId)->increment('balance', $this->getGrandTotal());
-
-            if ($this->activeSession) {
-                $this->activeSession->increment('total_sales', $this->getGrandTotal());
-                if ($this->paymentMethod === 'cash') {
-                    $this->activeSession->increment('total_cash_sales', $this->getGrandTotal());
-                }
-            }
-
-            if ($this->appliedVoucher) {
-                \App\Models\Voucher::where('id', $this->appliedVoucher['id'])->increment('used_count');
-            }
-
-            $company = filament()->getTenant();
-
-            if ($this->pointsToRedeem > 0 && $this->customerId) {
-                \App\Models\PointHistory::create([
-                    'company_id' => $companyId,
-                    'customer_id' => $this->customerId,
-                    'type' => 'redeem',
-                    'amount' => $this->pointsToRedeem,
-                    'reference_id' => $newTrx->transaction_number,
-                    'description' => 'Tukar poin di Kasir (POS)',
-                ]);
-            }
-
-            if ($this->customerId && $this->customerInfo && $company->is_loyalty_enabled) {
-                $spendAmount = (float) $company->loyalty_spend_amount;
-                $earnedPerSpend = (int) $company->loyalty_point_earned;
-
-                if ($spendAmount > 0) {
-                    $grandTotal = $this->getGrandTotal();
-                    $earnedMultiplier = floor($grandTotal / $spendAmount);
-                    $earnedPoints = $earnedMultiplier * $earnedPerSpend; 
-                    
-                    if ($earnedPoints > 0) {
-                        \App\Models\PointHistory::create([
-                            'company_id' => $companyId,
-                            'customer_id' => $this->customerId,
-                            'type' => 'earn',
-                            'amount' => $earnedPoints,
-                            'reference_id' => $newTrx->transaction_number,
-                            'description' => 'Earned points from POS Sale',
-                        ]);
-                    }
-                }
-            }
-
-            foreach ($this->cart as $item) {
-                $totalBaseQtyDeducted = $item['qty'] * $item['conversion_factor'];
-                $isService = ($item['item_type'] ?? 'goods') === 'service';
-                $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
-
-                TransactionItem::create([
-                    'company_id' => $companyId,
-                    'transaction_id' => $newTrx->id,
-                    'product_id' => $item['id'],
-                    'uom_id' => $item['uom_id'],
-                    'qty' => $item['qty'],
-                    'conversion_factor' => $item['conversion_factor'],
-                    'base_qty' => $totalBaseQtyDeducted,
-                    'cost_price' => ($item['cost'] ?? 0) * $item['conversion_factor'], 
-                    'selling_price' => $item['price'],
-                    'subtotal' => $item['price'] * $item['qty'],
-                ]);
-
-                if ($isBundle) {
-                    $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
-                    
-                    foreach ($components as $comp) {
-                        $child = DB::table('products')->where('id', $comp->child_product_id)->first();
-                        
-                        if ($child && $child->item_type === 'goods') {
-                            $qtyToDeduct = $totalBaseQtyDeducted * (float)$comp->quantity;
-                            
-                            $lastMovement = StockMovement::where('product_id', $comp->child_product_id)
-                                ->where('outlet_id', $outletId)->latest()->first();
-                            
-                            $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
-                            $balanceAfter = $balanceBefore - $qtyToDeduct;
-
-                            StockMovement::create([
-                                'company_id' => $companyId,
-                                'outlet_id' => $outletId,
-                                'product_id' => $comp->child_product_id,
-                                'type' => 'sale', 
-                                'reference_type' => Transaction::class,
-                                'reference_id' => $newTrx->id,
-                                'quantity' => $qtyToDeduct,
-                                'balance_before' => $balanceBefore,
-                                'balance_after' => $balanceAfter,
-                                'remarks' => "Terjual dalam Paket/Bundle. Nota: " . $newTrx->transaction_number,
-                            ]);
-                        }
-                    }
-                } elseif (!$isService) {
-                    $lastMovement = StockMovement::where('product_id', $item['id'])
-                        ->where('outlet_id', $outletId)
-                        ->latest()
-                        ->first();
-
-                    $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
-                    $balanceAfter = $balanceBefore - $totalBaseQtyDeducted;
-
-                    StockMovement::create([
-                        'company_id' => $companyId,
-                        'outlet_id' => $outletId,
-                        'product_id' => $item['id'],
-                        'type' => 'sale', 
-                        'reference_type' => Transaction::class,
-                        'reference_id' => $newTrx->id,
-                        'quantity' => $totalBaseQtyDeducted,
-                        'balance_before' => $balanceBefore,
-                        'balance_after' => $balanceAfter,
-                        'remarks' => 'Penjualan POS Nota: ' . $newTrx->transaction_number,
-                    ]);
-                }
-            }
+            // Jalankan potong stok, poin, & jurnal kas
+            $this->fulfillTransaction($newTrx);
 
             return $newTrx;
         });
 
-        \Filament\Notifications\Notification::make()->title('Transaksi Berhasil!')->success()->send();
+        Notification::make()->title('Transaksi Berhasil!')->success()->send();
         
         $this->dispatch('open-receipt', url: route('pos.receipt', $transaction->id));
         $this->dispatch('close-payment-modal'); 
         
         $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId']);
+    }
+    public function processPaymentSuccess($transactionId)
+    {
+        $transaction = Transaction::find($transactionId);
+
+        if ($transaction && $transaction->status === 'pending') {
+            DB::transaction(function () use ($transaction) {
+                $transaction->update(['status' => 'completed']);
+                $this->fulfillTransaction($transaction);
+            });
+
+            Notification::make()->title('Pembayaran QRIS Berhasil!')->success()->send();
+
+            $this->dispatch('open-receipt', url: route('pos.receipt', $transaction->id));
+            $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId']);
+        }
+    }
+
+    /**
+     * Helper untuk potong stok, jurnal kas, voucher, & poin
+     */
+    protected function fulfillTransaction(Transaction $transaction)
+    {
+        $outletId = $transaction->outlet_id;
+        $companyId = $transaction->company_id;
+
+        // Tambah Saldo Rekening
+        \App\Models\Account::where('id', $transaction->account_id)->increment('balance', $transaction->grand_total);
+
+        // Session Kasir
+        if ($this->activeSession) {
+            $this->activeSession->increment('total_sales', $transaction->grand_total);
+            if ($transaction->payment_method === 'cash') {
+                $this->activeSession->increment('total_cash_sales', $transaction->grand_total);
+            }
+        }
+
+        // Kupon Voucher
+        if ($this->appliedVoucher) {
+            \App\Models\Voucher::where('id', $this->appliedVoucher['id'])->increment('used_count');
+        }
+
+        // Point History (Redeem & Earn)
+        $company = filament()->getTenant();
+        if ($transaction->points_used > 0 && $transaction->customer_id) {
+            \App\Models\PointHistory::create([
+                'company_id' => $companyId,
+                'customer_id' => $transaction->customer_id,
+                'type' => 'redeem',
+                'amount' => $transaction->points_used,
+                'reference_id' => $transaction->transaction_number,
+                'description' => 'Tukar poin di Kasir (POS)',
+            ]);
+        }
+
+        if ($transaction->customer_id && $company->is_loyalty_enabled && $company->loyalty_spend_amount > 0) {
+            $earnedMultiplier = floor($transaction->grand_total / $company->loyalty_spend_amount);
+            $earnedPoints = $earnedMultiplier * (int) $company->loyalty_point_earned; 
+
+            if ($earnedPoints > 0) {
+                \App\Models\PointHistory::create([
+                    'company_id' => $companyId,
+                    'customer_id' => $transaction->customer_id,
+                    'type' => 'earn',
+                    'amount' => $earnedPoints,
+                    'reference_id' => $transaction->transaction_number,
+                    'description' => 'Earned points from POS Sale',
+                ]);
+            }
+        }
+
+        // Simpan Item & Potong Stok
+        foreach ($this->cart as $item) {
+            $totalBaseQtyDeducted = $item['qty'] * $item['conversion_factor'];
+            $isService = ($item['item_type'] ?? 'goods') === 'service';
+            $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
+
+            TransactionItem::create([
+                'company_id' => $companyId,
+                'transaction_id' => $transaction->id,
+                'product_id' => $item['id'],
+                'uom_id' => $item['uom_id'],
+                'qty' => $item['qty'],
+                'conversion_factor' => $item['conversion_factor'],
+                'base_qty' => $totalBaseQtyDeducted,
+                'cost_price' => ($item['cost'] ?? 0) * $item['conversion_factor'], 
+                'selling_price' => $item['price'],
+                'subtotal' => $item['price'] * $item['qty'],
+            ]);
+
+            if ($isBundle) {
+                $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
+                foreach ($components as $comp) {
+                    $child = DB::table('products')->where('id', $comp->child_product_id)->first();
+                    if ($child && $child->item_type === 'goods') {
+                        $qtyToDeduct = $totalBaseQtyDeducted * (float)$comp->quantity;
+                        $lastMovement = StockMovement::where('product_id', $comp->child_product_id)->where('outlet_id', $outletId)->latest()->first();
+                        $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
+
+                        StockMovement::create([
+                            'company_id' => $companyId,
+                            'outlet_id' => $outletId,
+                            'product_id' => $comp->child_product_id,
+                            'type' => 'sale', 
+                            'reference_type' => Transaction::class,
+                            'reference_id' => $transaction->id,
+                            'quantity' => $qtyToDeduct,
+                            'balance_before' => $balanceBefore,
+                            'balance_after' => $balanceBefore - $qtyToDeduct,
+                            'remarks' => "Terjual dalam Paket/Bundle. Nota: " . $transaction->transaction_number,
+                        ]);
+                    }
+                }
+            } elseif (!$isService) {
+                $lastMovement = StockMovement::where('product_id', $item['id'])->where('outlet_id', $outletId)->latest()->first();
+                $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
+
+                StockMovement::create([
+                    'company_id' => $companyId,
+                    'outlet_id' => $outletId,
+                    'product_id' => $item['id'],
+                    'type' => 'sale', 
+                    'reference_type' => Transaction::class,
+                    'reference_id' => $transaction->id,
+                    'quantity' => $totalBaseQtyDeducted,
+                    'balance_before' => $balanceBefore,
+                    'balance_after' => $balanceBefore - $totalBaseQtyDeducted,
+                    'remarks' => 'Penjualan POS Nota: ' . $transaction->transaction_number,
+                ]);
+            }
+        }
     }
 }

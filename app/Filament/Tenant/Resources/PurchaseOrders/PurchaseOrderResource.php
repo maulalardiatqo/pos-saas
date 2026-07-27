@@ -3,8 +3,8 @@
 namespace App\Filament\Tenant\Resources\PurchaseOrders;
 
 use App\Filament\Tenant\Resources\PurchaseOrders\Pages;
-use App\Filament\Tenant\Resources\PurchaseOrderResource\PurchaseOrderForm;
-use App\Filament\Tenant\Resources\PurchaseOrderResource\PurchaseOrderTable;
+use App\Filament\Tenant\Resources\PurchaseOrders\Schemas\PurchaseOrderForm;
+use App\Filament\Tenant\Resources\PurchaseOrders\Tables\PurchaseOrdersTable;
 use App\Models\PurchaseOrder;
 use Filament\Resources\Resource;
 use Filament\Tables\Table;
@@ -40,7 +40,7 @@ class PurchaseOrderResource extends Resource
 
     public static function table(Table $table): Table
     {
-        return PurchaseOrderTable::table($table);
+        return PurchaseOrdersTable::table($table);
     }
     public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
     {

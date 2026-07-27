@@ -18,6 +18,7 @@ class Company extends Model
     protected function casts(): array
     {
         return [
+            'midtrans_is_production' => 'boolean',
             'valid_until'          => 'date',
             'is_loyalty_enabled'   => 'boolean',
             'loyalty_spend_amount' => 'float',
@@ -73,10 +74,31 @@ class Company extends Model
 
     public function hasFeature(string $feature): bool
     {
-        return data_get(
-            $this->subscriptionPlan?->features,
-            $feature,
-            false
-        );
+        $features = $this->subscriptionPlan?->features;
+
+        if (!$features) {
+            return false;
+        }
+
+        // Ubah string JSON menjadi array
+        if (is_string($features)) {
+            $features = json_decode($features, true);
+        }
+
+        if (!is_array($features)) {
+            return false;
+        }
+        $value = data_get($features, $feature);
+        if ($value !== null) {
+            return (bool) $value;
+        }
+
+        foreach ($features as $group) {
+            if (is_array($group) && array_key_exists($feature, $group)) {
+                return (bool) $group[$feature];
+            }
+        }
+
+        return false;
     }
 }

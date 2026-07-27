@@ -5,7 +5,7 @@ namespace App\Filament\Tenant\Resources\Users;
 use App\Filament\Tenant\Resources\Users\Pages\CreateUser;
 use App\Filament\Tenant\Resources\Users\Pages\EditUser;
 use App\Filament\Tenant\Resources\Users\Pages\ListUsers;
-use App\Filament\Tenant\Resources\Users\Schemas\UserForm;
+use App\Filament\Tenant\Resources\Users\Schemas\UsersForm;
 use App\Filament\Tenant\Resources\Users\Tables\UsersTable;
 use App\Models\User;
 use Filament\Facades\Filament;
@@ -74,7 +74,7 @@ class UsersResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
-        return UserForm::configure($schema);
+        return UsersForm::configure($schema);
     }
 
     public static function table(Table $table): Table

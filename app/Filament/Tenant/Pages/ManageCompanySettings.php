@@ -37,7 +37,6 @@ class ManageCompanySettings extends Page implements HasSchemas
         /** @var \App\Models\User $user */
         $user = auth()->user();
         
-        // Sesuaikan dengan fungsi cek role yang Anda gunakan di model User
         return $user && ($user->isOwner() || $user->isPlatform());
     }
     public function mount(): void

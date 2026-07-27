@@ -1,9 +1,20 @@
 <div>
     <x-filament-panels::page>
         @php
-            // Cek pengaturan perusahaan: apakah menggunakan gambar atau tidak
-            $showImage = filament()->getTenant()->pos_with_img ?? true;
+            $tenant = filament()->getTenant();
+            $showImage = $tenant->pos_with_img ?? true;
+            
+            // Konfigurasi URL Midtrans Snap (Sandbox vs Production)
+            $clientKey = $tenant->midtrans_client_key;
+            $snapUrl = ($tenant->midtrans_is_production ?? false)
+                ? 'https://app.midtrans.com/snap/snap.js'
+                : 'https://app.sandbox.midtrans.com/snap/snap.js';
         @endphp
+
+        {{-- Muat SDK Snap jika Tenant memiliki Client Key --}}
+        @if($clientKey)
+            <script src="{{ $snapUrl }}" data-client-key="{{ $clientKey }}"></script>
+        @endif
 
         <!-- CSS FIX: MENYEMPURNAKAN KEKAKUAN GRID & KARTU PRODUK -->
         <style>
@@ -245,6 +256,30 @@
                         });
                         window.addEventListener('close-payment-modal', () => {
                             this.showPaymentModal = false;
+                        });
+                        window.addEventListener('trigger-midtrans-snap', (event) => {
+                            let snapToken = event.detail.snapToken;
+                            let transactionId = event.detail.transactionId;
+
+                            if (typeof window.snap !== 'undefined') {
+                                window.snap.pay(snapToken, {
+                                    onSuccess: function(result) {
+                                        // Panggil fungsi controller Livewire untuk menyelesaikan transaksi
+                                        @this.processPaymentSuccess(transactionId);
+                                    },
+                                    onPending: function(result) {
+                                        alert('Pembayaran belum selesai/pending.');
+                                    },
+                                    onError: function(result) {
+                                        alert('Pembayaran QRIS Gagal/Dibatalkan.');
+                                    },
+                                    onClose: function() {
+                                        alert('Pop-up pembayaran ditutup sebelum selesai.');
+                                    }
+                                });
+                            } else {
+                                alert('SDK Midtrans gagal dimuat. Pastikan Client Key Midtrans toko Anda sudah diisi dengan benar.');
+                            }
                         });
                     }
                 }">
