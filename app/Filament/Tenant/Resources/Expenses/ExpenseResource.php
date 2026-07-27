@@ -16,9 +16,10 @@ use Filament\Support\Enums\Alignment;
 use Illuminate\Database\Eloquent\Builder;
 
 // Actions untuk Filament 4
-use Filament\Tables\Actions\EditAction;
-use Filament\Tables\Actions\DeleteAction;
-use Filament\Tables\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\BulkActionGroup;
 
 class ExpenseResource extends Resource
 {
@@ -135,7 +136,7 @@ class ExpenseResource extends Resource
                     }),
             ])
             ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
+                BulkActionGroup::make([
                     DeleteBulkAction::make()
                         ->before(function (\Illuminate\Database\Eloquent\Collection $records) {
                             foreach ($records as $record) {

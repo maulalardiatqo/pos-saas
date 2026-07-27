@@ -21,56 +21,57 @@ class StockAdjustmentForm
     public static function configure(Schema $schema): Schema 
     {
         return $schema
-            ->components([ // <-- Gunakan components(), bukan schema()
-                Grid::make(3)->schema([
-                    // KOLOM KIRI: Informasi Dokumen Induk (Lebar 2/3)
-                    Grid::make(1)->schema([
-                        Section::make('Informasi Penyesuaian')
-                            ->schema([
-                                Grid::make(2)->schema([
-                                    TextInput::make('document_number')
-                                        ->label('Nomor Dokumen')
-                                        ->default(fn () => 'ADJ-' . strtoupper(str()->random(8)))
-                                        ->required()
-                                        ->readOnly()
-                                        ->maxLength(50),
+            ->components([
 
-                                    DatePicker::make('date')
-                                        ->label('Tanggal Penyesuaian')
-                                        ->default(now())
-                                        ->native(false)
-                                        ->required(),
+                Section::make('Informasi Penyesuaian')
+                    ->schema([
+                        Grid::make([
+                            'default' => 1,
+                            'md' => 2,
+                        ])->schema([
 
-                                    Select::make('outlet_id')
-                                        ->label('Cabang (Outlet)')
-                                        ->relationship('outlet', 'name', function ($query) {
-                                            $tenantId = Filament::getTenant()?->id;
-                                            return $query->where('company_id', $tenantId);
-                                        })
-                                        ->searchable()
-                                        ->preload()
-                                        ->required(),
+                            TextInput::make('document_number')
+                                ->label('Nomor Dokumen')
+                                ->default(fn () => 'ADJ-' . strtoupper(str()->random(8)))
+                                ->required()
+                                ->readOnly()
+                                ->maxLength(50),
 
-                                    Select::make('status')
-                                        ->label('Status Dokumen')
-                                        ->options([
-                                            'draft' => 'Draft (Belum Memotong Stok)',
-                                            'completed' => 'Selesai (Stok Terpotong)',
-                                        ])
-                                        ->default('draft')
-                                        ->required(),
-                                ]),
+                            DatePicker::make('date')
+                                ->label('Tanggal Penyesuaian')
+                                ->default(now())
+                                ->native(false)
+                                ->required(),
 
-                                Textarea::make('reason')
-                                    ->label('Alasan Penyesuaian')
-                                    ->placeholder('Cth: Barang rusak, hasil stock opname, dll.')
-                                    ->rows(2),
-                                    
-                                Hidden::make('user_id')
-                                    ->default(fn () => auth()->id()),
-                            ]),
-                    ])->columnSpan(2),
-                ])->columns(3),
+                            Select::make('outlet_id')
+                                ->label('Cabang (Outlet)')
+                                ->relationship('outlet', 'name', function ($query) {
+                                    return $query->where('company_id', Filament::getTenant()?->id);
+                                })
+                                ->searchable()
+                                ->preload()
+                                ->required(),
+
+                            Select::make('status')
+                                ->label('Status Dokumen')
+                                ->options([
+                                    'draft' => 'Draft (Belum Memotong Stok)',
+                                    'completed' => 'Selesai (Stok Terpotong)',
+                                ])
+                                ->default('draft')
+                                ->required(),
+                        ]),
+
+                        Textarea::make('reason')
+                            ->label('Alasan Penyesuaian')
+                            ->placeholder('Cth: Barang rusak, hasil stock opname, dll.')
+                            ->rows(2)
+                            ->columnSpanFull(),
+
+                        Hidden::make('user_id')
+                            ->default(fn () => auth()->id()),
+                    ])
+                    ->columnSpanFull(),
 
                 Section::make('Daftar Barang (Item)')
                     ->schema([
@@ -81,7 +82,7 @@ class StockAdjustmentForm
                                     ->label('Pilih Produk')
                                     ->relationship('product', 'name', function ($query) {
                                         return $query->where('company_id', Filament::getTenant()?->id)
-                                                    ->where('item_type', '!=', 'service'); 
+                                            ->where('item_type', '!=', 'service');
                                     })
                                     ->searchable()
                                     ->preload()
@@ -97,8 +98,10 @@ class StockAdjustmentForm
                                     ->label('Satuan')
                                     ->options(function (Get $get) {
                                         $productId = $get('product_id');
-                                        if (!$productId) return [];
-                                        
+                                        if (! $productId) {
+                                            return [];
+                                        }
+
                                         $uomIds = DB::table('product_uoms')
                                             ->where('product_id', $productId)
                                             ->whereNull('deleted_at')
@@ -112,6 +115,7 @@ class StockAdjustmentForm
                                     ->live()
                                     ->afterStateUpdated(function (Get $get, Set $set, $state) {
                                         $productId = $get('product_id');
+
                                         if ($productId && $state) {
                                             $pivotData = DB::table('product_uoms')
                                                 ->where('product_id', $productId)
@@ -120,11 +124,11 @@ class StockAdjustmentForm
                                                 ->first();
 
                                             $factor = $pivotData ? (float) $pivotData->conversion_factor : 1;
+
                                             $set('conversion_factor', $factor);
                                             $set('base_qty', (float) $get('quantity') * $factor);
                                         }
-                                    })
-                                    ->columnSpan(1),
+                                    }),
 
                                 Select::make('type')
                                     ->label('Jenis')
@@ -132,8 +136,7 @@ class StockAdjustmentForm
                                         'addition' => 'Tambah Stok (+)',
                                         'deduction' => 'Kurangi Stok (-)',
                                     ])
-                                    ->required()
-                                    ->columnSpan(1),
+                                    ->required(),
 
                                 TextInput::make('quantity')
                                     ->label('Jumlah')
@@ -143,24 +146,29 @@ class StockAdjustmentForm
                                     ->live(onBlur: true)
                                     ->afterStateUpdated(function (Get $get, Set $set) {
                                         $factor = (float) ($get('conversion_factor') ?? 1);
-                                        $set('base_qty', (float) $get('quantity') * $factor);
-                                    })
-                                    ->columnSpan(1),
 
-                                // Hidden fields untuk menjaga integritas data ke database
-                                Hidden::make('conversion_factor')->default(1)->dehydrated(),
-                                Hidden::make('base_qty')->default(1)->dehydrated(),
+                                        $set('base_qty', (float) $get('quantity') * $factor);
+                                    }),
+
+                                Hidden::make('conversion_factor')
+                                    ->default(1)
+                                    ->dehydrated(),
+
+                                Hidden::make('base_qty')
+                                    ->default(1)
+                                    ->dehydrated(),
 
                                 TextInput::make('remarks')
                                     ->label('Keterangan')
-                                    ->placeholder('Opsional')
-                                    ->columnSpan(1),
+                                    ->placeholder('Opsional'),
                             ])
                             ->columns(6)
-                            ->addActionLabel('Tambah Barang Lain')
                             ->defaultItems(1)
-                            ->reorderable(true),
-                    ]),
+                            ->reorderable()
+                            ->addActionLabel('Tambah Barang Lain'),
+                    ])
+                    ->columnSpanFull(),
+
             ]);
     }
 }
