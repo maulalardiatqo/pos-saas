@@ -529,58 +529,93 @@ class PosCashier extends Page
                              && !empty($company->midtrans_server_key);
 
         if ($isMidtransPayment) {
-            // 1. Ambil & bulatkan Grand Total ke integer
-            $grandTotal = (int) round($this->getGrandTotal());
+            // 1. Bersihkan Grand Total dari karakter non-digit (menghindari bug format titik "50.000" jadi 50)
+            $rawGrandTotal = $this->getGrandTotal();
+            $cleanGrandTotal = (int) preg_replace('/[^0-9]/', '', (string) round($rawGrandTotal));
 
-            // 2. Validasi agar tidak mengirim nominal 0 ke Midtrans
-            if ($grandTotal < 1) {
+            // 2. Validasi nominal minimal Rp 1
+            if ($cleanGrandTotal < 1) {
                 Notification::make()
-                    ->title('Total pembayaran QRIS harus minimal Rp 1!')
-                    ->body('Silakan periksa kembali keranjang atau diskon yang diterapkan.')
+                    ->title('Gagal Transaksi QRIS')
+                    ->body('Total pembayaran bernilai Rp ' . number_format($rawGrandTotal, 0, ',', '.') . '. Nominal minimal Midtrans adalah Rp 1.')
                     ->danger()
                     ->send();
                     
                 return;
             }
 
-            // 3. Buat Transaksi Status Pending
+            // 3. Buat Order ID Unik Baru (Tambahkan timestamp agar tidak bentrok dengan cache Midtrans)
+            $uniqueOrderId = 'POS-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
+
+            // 4. Susun Rincian Produk (Item Details) untuk dikirim ke Midtrans
+            $itemDetails = [];
+            foreach ($this->cart as $item) {
+                $itemDetails[] = [
+                    'id'       => (string) $item['id'],
+                    'price'    => (int) preg_replace('/[^0-9]/', '', (string) round($item['price'])),
+                    'quantity' => (int) $item['qty'],
+                    'name'     => substr($item['name'], 0, 50), // Midtrans membatasi nama item max 50 karakter
+                ];
+            }
+
+            // Hitung total semua diskon jika ada, lalu tambahkan sebagai item potongan
+            $totalDiscount = $this->getMembershipDiscountAmount() 
+                           + $this->getVoucherDiscountAmount() 
+                           + (float)($this->discount ?: 0) 
+                           + $this->getPointDiscountAmount();
+
+            if ($totalDiscount > 0) {
+                $itemDetails[] = [
+                    'id'       => 'DISCOUNT',
+                    'price'    => -1 * (int) preg_replace('/[^0-9]/', '', (string) round($totalDiscount)),
+                    'quantity' => 1,
+                    'name'     => 'Total Diskon Nota',
+                ];
+            }
+
+            // 5. Buat Record Transaksi di Database dengan Status Pending
             $transaction = Transaction::create([
-                'company_id' => $companyId,
-                'outlet_id' => $outletId,
-                'user_id' => auth()->id(),
-                'pos_session_id' => ($company->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
-                'customer_id' => $this->customerId ?: null,
-                'account_id' => $this->accountId, 
-                'transaction_number' => 'POS-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3))),
-                'type' => 'sale', 
-                'in_out' => 'in', 
-                'status' => 'pending',
-                'payment_method' => $this->paymentMethod,
-                'subtotal' => $this->getSubtotal(),
-                'discount' => $this->discount ?: 0,
-                'points_used' => $this->pointsToRedeem ?: 0,
+                'company_id'            => $companyId,
+                'outlet_id'             => $outletId,
+                'user_id'               => auth()->id(),
+                'pos_session_id'        => ($company->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
+                'customer_id'           => $this->customerId ?: null,
+                'account_id'            => $this->accountId, 
+                'transaction_number'    => $uniqueOrderId,
+                'type'                  => 'sale', 
+                'in_out'                => 'in', 
+                'status'                => 'pending',
+                'payment_method'        => $this->paymentMethod,
+                'subtotal'              => $this->getSubtotal(),
+                'discount'              => $this->discount ?: 0,
+                'points_used'           => $this->pointsToRedeem ?: 0,
                 'point_discount_amount' => $this->getPointDiscountAmount(),
-                'grand_total' => $grandTotal,
-                'amount_paid' => $grandTotal,
-                'amount_change' => 0,
+                'grand_total'           => $cleanGrandTotal,
+                'amount_paid'           => $cleanGrandTotal,
+                'amount_change'         => 0,
             ]);
 
-            // 4. Kirim data yang valid ke Midtrans
+            // 6. Panggil Service Midtrans
             try {
                 $transactionDetails = [
-                    'order_id' => $transaction->transaction_number,
-                    'gross_amount' => $grandTotal, // Menggunakan variabel $grandTotal yang sudah divalidasi
+                    'order_id'     => $uniqueOrderId,
+                    'gross_amount' => $cleanGrandTotal,
                 ];
 
-                $snapToken = MidtransService::createTransaction($company, $transactionDetails);
+                // Kirim juga $itemDetails agar rincian belanja muncul di layar QRIS Midtrans
+                $snapToken = MidtransService::createTransaction($company, $transactionDetails, $itemDetails);
 
                 $this->dispatch('close-payment-modal');
                 $this->dispatch('trigger-midtrans-snap', snapToken: $snapToken, transactionId: $transaction->id);
                 return;
 
             } catch (\Exception $e) {
-                $transaction->delete(); // Batalkan transaksi jika API Midtrans gagal
-                Notification::make()->title('Gagal terhubung ke Midtrans: ' . $e->getMessage())->danger()->send();
+                $transaction->delete(); // Batalkan transaksi jika API Midtrans menolak
+                Notification::make()
+                    ->title('Gagal terhubung ke Midtrans')
+                    ->body($e->getMessage() . " (Gross Amount dikirim: Rp {$cleanGrandTotal})")
+                    ->danger()
+                    ->send();
                 return;
             }
         }
