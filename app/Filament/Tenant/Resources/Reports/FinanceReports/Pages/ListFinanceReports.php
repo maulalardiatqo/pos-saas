@@ -58,11 +58,17 @@ class ListFinanceReports extends ListRecords
         // =======================================================
         
         $currIn = (clone $currQ)->where('in_out', 'in')->sum('grand_total');
-        $currOut = (clone $currQ)->where('in_out', 'out')->sum('grand_total');
+        
+        // TOTAL UANG KELUAR REAL (Untuk Arus Kas) -> Tetap menghitung semua uang keluar termasuk PO
+        $currOutTotal = (clone $currQ)->where('in_out', 'out')->sum('grand_total');
+        
+        // BEBAN OPERASIONAL MURNI (Untuk Laba Rugi) -> MENGECUALIKAN PURCHASE ORDER / BELANJA STOK
+        $currOutOps = (clone $currQ)->where('in_out', 'out')->whereNotIn('type', ['purchaseorder', 'purchase'])->sum('grand_total');
+        
         $currAdminFee = (clone $currQ)->sum('admin_fee'); // TOTAL POTONGAN MIDTRANS
 
-        // Arus Kas Bersih (Uang Real) = Uang Masuk - Pengeluaran - Potongan Midtrans
-        $currNetCash = $currIn - $currOut - $currAdminFee;
+        // Arus Kas Bersih (Uang Real) = Total Uang Masuk - Total Uang Keluar (termasuk PO) - Admin Fee
+        $currNetCash = $currIn - $currOutTotal - $currAdminFee;
 
         // PENDAPATAN MURNI (Kecualikan Saldo Awal) -> Untuk Laba Rugi
         $currPendapatan = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')->sum('grand_total');
@@ -79,11 +85,11 @@ class ListFinanceReports extends ListRecords
 
         $currHpp = (float) $itemCurr->hpp;
         
-        // Semua pengeluaran (Out) + Biaya Admin Payment Gateway dianggap sebagai Beban Operasional
-        $currBebanOps = $currOut + $currAdminFee; 
+        // PERBAIKAN AKUNTANSI: Beban Ops hanya menghitung pengeluaran murni (tanpa PO) + Admin Fee
+        $currBebanOps = $currOutOps + $currAdminFee; 
         $currTotalBeban = $currHpp + $currBebanOps;
         
-        // Laba dihitung dari Pendapatan Murni dikurangi seluruh Beban (HPP + Ops + Admin Fee)
+        // Laba dihitung dari Pendapatan Murni dikurangi seluruh Beban Murni (HPP + Beban Ops tanpa PO)
         $currLaba = $currPendapatan - $currTotalBeban;
         $currMargin = $currPendapatan > 0 ? ($currLaba / $currPendapatan) * 100 : 0;
 
@@ -92,10 +98,11 @@ class ListFinanceReports extends ListRecords
         // =======================================================
         
         $prevIn = (clone $prevQ)->where('in_out', 'in')->sum('grand_total');
-        $prevOut = (clone $prevQ)->where('in_out', 'out')->sum('grand_total');
+        $prevOutTotal = (clone $prevQ)->where('in_out', 'out')->sum('grand_total');
+        $prevOutOps = (clone $prevQ)->where('in_out', 'out')->whereNotIn('type', ['purchaseorder', 'purchase'])->sum('grand_total');
         $prevAdminFee = (clone $prevQ)->sum('admin_fee');
 
-        $prevNetCash = $prevIn - $prevOut - $prevAdminFee;
+        $prevNetCash = $prevIn - $prevOutTotal - $prevAdminFee;
 
         $prevPendapatan = (clone $prevQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')->sum('grand_total');
         
@@ -109,7 +116,7 @@ class ListFinanceReports extends ListRecords
             ->first();
 
         $prevHpp = (float) $itemPrev->hpp;
-        $prevBebanOps = $prevOut + $prevAdminFee;
+        $prevBebanOps = $prevOutOps + $prevAdminFee;
         $prevTotalBeban = $prevHpp + $prevBebanOps;
         $prevLaba = $prevPendapatan - $prevTotalBeban;
         $prevMargin = $prevPendapatan > 0 ? ($prevLaba / $prevPendapatan) * 100 : 0;
@@ -127,7 +134,8 @@ class ListFinanceReports extends ListRecords
         $trendIn = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')
             ->selectRaw("DATE(created_at) as label, SUM(grand_total) as total")->groupBy('label')->pluck('total', 'label');
             
-        $trendOut = (clone $currQ)->where('in_out', 'out')
+        // Trend Uang Keluar Ops (Tanpa PO)
+        $trendOutOps = (clone $currQ)->where('in_out', 'out')->whereNotIn('type', ['purchaseorder', 'purchase'])
             ->selectRaw("DATE(created_at) as label, SUM(grand_total) as total")->groupBy('label')->pluck('total', 'label');
 
         $trendAdminFee = (clone $currQ)
@@ -149,12 +157,12 @@ class ListFinanceReports extends ListRecords
             $chartLabels[] = $cursor->format('d M');
             
             $dIn = (float) ($trendIn[$dateStr] ?? 0);
-            $dOut = (float) ($trendOut[$dateStr] ?? 0);
+            $dOutOps = (float) ($trendOutOps[$dateStr] ?? 0);
             $dHpp = (float) ($trendHpp[$dateStr] ?? 0); 
             $dAdmin = (float) ($trendAdminFee[$dateStr] ?? 0); 
             
-            // Pengeluaran harian kini termasuk Potongan Midtrans harian
-            $dailyBeban = $dOut + $dHpp + $dAdmin; 
+            // Pengeluaran harian murni (tanpa PO)
+            $dailyBeban = $dOutOps + $dHpp + $dAdmin; 
             
             $chartPendapatan[] = $dIn;
             $chartBeban[] = $dailyBeban;
@@ -210,10 +218,10 @@ class ListFinanceReports extends ListRecords
                     'totalBeban' => $currTotalBeban,
                     'hpp'        => $currHpp,
                     'bebanOps'   => $currBebanOps,
-                    'adminFee'   => $currAdminFee, // DATA BARU DIKIRIM KE VIEW
+                    'adminFee'   => $currAdminFee, 
                     'labaBersih' => $currLaba,
                     'cashIn'     => $currIn,
-                    'cashOut'    => $currOut,
+                    'cashOut'    => $currOutTotal, // Arus Kas Out tetap menampilkan seluruh kas keluar
                     'netCash'    => $currNetCash,
                 ],
                 'prev' => [
@@ -221,10 +229,10 @@ class ListFinanceReports extends ListRecords
                     'totalBeban' => $prevTotalBeban,
                     'hpp'        => $prevHpp,
                     'bebanOps'   => $prevBebanOps,
-                    'adminFee'   => $prevAdminFee, // DATA BARU DIKIRIM KE VIEW
+                    'adminFee'   => $prevAdminFee, 
                     'labaBersih' => $prevLaba,
                     'cashIn'     => $prevIn,
-                    'cashOut'    => $prevOut,
+                    'cashOut'    => $prevOutTotal,
                     'netCash'    => $prevNetCash,
                 ],
                 'pct' => $pct

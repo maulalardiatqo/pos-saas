@@ -5,7 +5,8 @@ namespace App\Filament\Tenant\Resources\Outlets\Schemas;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Components\Hidden; // Impor komponen Hidden
+use Filament\Forms\Components\Hidden; 
+use Filament\Forms\Components\Select; // <-- Jangan lupa import Select
 use Filament\Schemas\Schema;
 use Illuminate\Support\Str;
 
@@ -24,6 +25,19 @@ class OutletForm
                     ->required()
                     ->placeholder('Contoh: Cabang Bandung Utama')
                     ->maxLength(100),
+
+                // --- TAMBAHAN UNTUK TIPE OUTLET ---
+                Select::make('type')
+                    ->label('Tipe Outlet')
+                    ->options([
+                        'store' => 'Toko Fisik (Kasir/POS)',
+                        'warehouse' => 'Gudang Utama',
+                        'canvas' => 'Mobil Sales / Kanvas',
+                    ])
+                    ->default('store')
+                    ->required()
+                    ->helperText('Pilih "Mobil Sales" jika ini adalah kendaraan untuk sales keliling.'),
+                // -----------------------------------
 
                 TextInput::make('phone')
                     ->label('Nomor Telepon')

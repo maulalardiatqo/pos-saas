@@ -51,7 +51,6 @@ class ManagePointSettings extends Page implements HasForms
         /** @var \App\Models\Company $company */
         $company = filament()->getTenant();
 
-        // --- 2. CEK FITUR UNTUK MENCEGAH AKSES URL LANGSUNG (403 Forbidden) ---
         abort_if(! $company->hasFeature('crm.point'), 403, 'Fitur Poin Pelanggan tidak tersedia dalam paket toko Anda.');
 
         $this->form->fill([
@@ -94,11 +93,12 @@ class ManagePointSettings extends Page implements HasForms
                                     ->required(),
 
                                 TextInput::make('loyalty_point_value')
-                                    ->label('Nilai 1 Poin (Tukar)')
+                                    ->label('Nilai 1 Poin (Potongan Langsung)')
+                                    ->helperText('Nominal potongan harga di kasir. Ketik 0 jika poin hanya khusus ditukar di Katalog Hadiah.')
                                     ->prefix('Rp')
                                     ->mask(RawJs::make('$money($input, \',\', \'.\', 0)'))
                                     ->stripCharacters('.')
-                                    ->default(100)
+                                    ->default(0)
                                     ->required(),
                             ]),
                     ])

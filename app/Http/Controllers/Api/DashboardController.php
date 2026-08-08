@@ -1,96 +1,86 @@
 <?php
 
-namespace App\Filament\Tenant\Pages;
+namespace App\Http\Controllers\Api;
 
-use Filament\Pages\Page;
+use App\Http\Controllers\Controller;
 use App\Models\Outlet;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Livewire\Attributes\Url;
-use BackedEnum; 
 
-class Dashboard extends Page
+class DashboardController extends Controller
 {
-    protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-home';
-    
-    protected ?string $heading = ''; 
-    
-    protected static ?string $title = 'Dashboard';
-    protected static ?string $slug = ''; 
-    protected static ?int $navigationSort = -10;
-
-    protected string $view = 'filament.tenant.pages.dashboard';
-
-    // State Filter
-    #[Url] public string $dateFilter = 'today';
-    #[Url] public ?string $outletId = null;
-
-    public function getViewData(): array
+    public function index(Request $request)
     {
-        $user = auth()->user();
+        $user = $request->user();
         $isOwner = $user->isOwner() || $user->isPlatform();
-        $tenantId = filament()->getTenant()?->id;
+        
+        // PERBAIKAN PENTING 1: 
+        // Di API, helper filament()->getTenant() biasanya null. 
+        // Kita wajib mengambil company_id langsung dari relasi User.
+        $tenantId = $user->company_id ?? $user->tenant_id ?? $user->outlet->company_id ?? null;
+
+        $dateFilter = $request->query('date_filter', 'today');
+        $outletId = $request->query('outlet_id');
 
         $outlets = $isOwner ? Outlet::where('company_id', $tenantId)->orderBy('name')->get() : collect();
 
         // 1. Tentukan Rentang Waktu
         $now = now();
-        $start = match ($this->dateFilter) {
+        $start = match ($dateFilter) {
             'yesterday' => $now->copy()->subDay()->startOfDay(),
             'this_week' => $now->copy()->startOfWeek(),
             'this_month' => $now->copy()->startOfMonth(),
             default => $now->copy()->startOfDay(), // today
         };
-        $end = match ($this->dateFilter) {
+        $end = match ($dateFilter) {
             'yesterday' => $now->copy()->subDay()->endOfDay(),
             'this_week' => $now->copy()->endOfWeek(),
             'this_month' => $now->copy()->endOfMonth(),
             default => $now->copy()->endOfDay(),
         };
 
-        // Rentang waktu periode sebelumnya (untuk perbandingan)
+        // Rentang waktu periode sebelumnya
         $diffInSeconds = $start->diffInSeconds($end);
         $prevEnd = $start->copy()->subSecond();
         $prevStart = $prevEnd->copy()->subSeconds($diffInSeconds);
 
         // 2. Base Query
-        $baseQ = function ($from, $to) use ($tenantId, $isOwner, $user) {
+        $baseQ = function ($from, $to) use ($tenantId, $isOwner, $user, $outletId) {
             return DB::table('transactions')
                 ->where('company_id', $tenantId)
                 ->whereBetween('created_at', [$from, $to])
                 ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
-                ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId));
+                ->when($isOwner && $outletId, fn($q) => $q->where('outlet_id', $outletId));
         };
 
         $currQ = $baseQ($start, $end);
         $prevQ = $baseQ($prevStart, $prevEnd);
 
         // =========================================================
-        // 3. KALKULASI KPI SUPER (PENJUALAN & LABA)
+        // 3. KALKULASI KPI SUPER
         // =========================================================
         $salesData = (clone $currQ)->where('type', 'sale')->where('status', 'completed')
             ->selectRaw('SUM(grand_total) as total_rev, SUM(admin_fee) as total_admin_fee, COUNT(id) as total_trx')->first();
         
-        $totalSales = (float) $salesData->total_rev; // Omset (Gross) tetap utuh
-        $currAdminFee = (float) $salesData->total_admin_fee; // Ambil total potongan admin
+        $totalSales = (float) $salesData->total_rev;
+        $currAdminFee = (float) $salesData->total_admin_fee;
         $totalTrx = (int) $salesData->total_trx;
         $avgTrx = $totalTrx > 0 ? $totalSales / $totalTrx : 0;
 
-        // Ambil Laba Kotor (Gross Profit) dari transaction_items
         $itemCurrent = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->where('transactions.company_id', $tenantId)->where('transactions.type', 'sale')->where('transactions.status', 'completed')
             ->whereBetween('transactions.created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
-            ->when($isOwner && $this->outletId, fn($q) => $q->where('transactions.outlet_id', $this->outletId))
+            ->when($isOwner && $outletId, fn($q) => $q->where('transactions.outlet_id', $outletId))
             ->selectRaw('SUM(transaction_items.qty) as total_qty, SUM(transaction_items.subtotal - (transaction_items.cost_price * transaction_items.qty)) as profit')
             ->first();
 
-        // 🟢 PERBAIKAN: Laba Bersih = Laba Kotor Barang - Potongan Admin Midtrans
         $totalProfit = (float) $itemCurrent->profit - $currAdminFee; 
         $totalItems = (int) $itemCurrent->total_qty;
 
-        // Data Previous (Untuk %)
+        // Data Previous
         $prevSalesData = (clone $prevQ)->where('type', 'sale')->where('status', 'completed')
             ->selectRaw('SUM(grand_total) as total_rev, SUM(admin_fee) as total_admin_fee, COUNT(id) as total_trx')->first();
         
@@ -106,14 +96,15 @@ class Dashboard extends Page
             ->selectRaw('SUM(transaction_items.qty) as total_qty, SUM(transaction_items.subtotal - (transaction_items.cost_price * transaction_items.qty)) as profit')
             ->first();
 
-        // 🟢 PERBAIKAN: Laba Bersih Previous juga dikurangi Admin Fee
         $prevProfit = (float) $itemPrev->profit - $prevAdminFee;
         $prevItems = (int) $itemPrev->total_qty;
 
         $pct = fn($c, $p) => $p > 0 ? round((($c - $p) / $p) * 100, 1) : ($c > 0 ? 100 : 0);
 
+        // =========================================================
         // 4. GRAFIK TREN PENJUALAN
-        $isHourly = in_array($this->dateFilter, ['today', 'yesterday']);
+        // =========================================================
+        $isHourly = in_array($dateFilter, ['today', 'yesterday']);
         $trendFormat = $isHourly ? 'HOUR(created_at)' : 'DATE(created_at)';
         
         $trendQuery = (clone $currQ)->where('type', 'sale')->where('status', 'completed')
@@ -138,7 +129,9 @@ class Dashboard extends Page
             }
         }
 
-        // 5. METODE PEMBAYARAN & KATEGORI & TOP PRODUK
+        // =========================================================
+        // 5. METODE PEMBAYARAN, KATEGORI, & TOP PRODUK
+        // =========================================================
         $paymentMethods = (clone $currQ)->where('type', 'sale')->where('status', 'completed')
             ->selectRaw("payment_method, SUM(grand_total) as total")
             ->groupBy('payment_method')->orderByDesc('total')->get()
@@ -176,42 +169,19 @@ class Dashboard extends Page
         // =========================================================
         // 6. RINGKASAN KAS (TETAP AMAN KARENA HANYA CASH)
         // =========================================================
-        $cashIn = (clone $currQ)
-            ->where('in_out', 'in')
-            ->where('status', 'completed')
-            ->where('payment_method', 'cash')
-            ->sum('grand_total'); 
-
-        $cashOut = (clone $currQ)
-            ->where('in_out', 'out')
-            ->where('status', 'completed')
-            ->where('payment_method', 'cash')
-            ->sum('grand_total');
-
+        $cashIn = (clone $currQ)->where('in_out', 'in')->where('status', 'completed')->where('payment_method', 'cash')->sum('grand_total');
+        $cashOut = (clone $currQ)->where('in_out', 'out')->where('status', 'completed')->where('payment_method', 'cash')->sum('grand_total');
         $cashBalance = $cashIn - $cashOut;
 
+        // PERBAIKAN PENTING 2: Mengembalikan query stok ke versi asli seperti di Dashboard.php web
+        $lowStockProducts = DB::table('products')->where('company_id', $tenantId)->where('is_active', 1)->limit(3)->get(); 
+
         // =========================================================
-        // 7. PERHITUNGAN STOK MENIPIS (Berdasarkan StockMovement)
+        // RETURN SEMUA DATA KE DALAM JSON
         // =========================================================
-        $activeOutletId = $this->outletId ?? $user->outlet_id ?? Outlet::where('company_id', $tenantId)->value('id');
-
-        $latestStockSubquery = \App\Models\StockMovement::select('balance_after')
-            ->whereColumn('product_id', 'products.id')
-            ->where('outlet_id', $activeOutletId)
-            ->latest('created_at')
-            ->limit(1);
-
-        $lowStockCount = \App\Models\Product::where('company_id', $tenantId)
-            ->where('is_active', 1)
-            ->where('item_type', 'goods') // Hanya hitung barang fisik
-            ->selectSub($latestStockSubquery, 'current_stock')
-            ->get()
-            ->where('current_stock', '<=', 5)
-            ->count();
-
-        return [
+        return response()->json([
+            'success' => true,
             'outlets' => $outlets,
-            'user' => $user,
             'kpis' => [
                 'sales' => ['val' => $totalSales, 'prev' => $prevSales, 'pct' => $pct($totalSales, $prevSales)],
                 'trx' => ['val' => $totalTrx, 'prev' => $prevTrx, 'pct' => $pct($totalTrx, $prevTrx)],
@@ -224,8 +194,12 @@ class Dashboard extends Page
             'paymentMethods' => $paymentMethods,
             'topCategories' => $topCategories,
             'topProducts' => $topProducts,
-            'cash' => ['in' => $cashIn, 'out' => $cashOut, 'balance' => $cashBalance],
-            'lowStockCount' => $lowStockCount // Memasukkan hasil hitungan yang akurat
-        ];
+            'cash' => [
+                'in' => (float) $cashIn, 
+                'out' => (float) $cashOut, 
+                'balance' => (float) $cashBalance
+            ],
+            'lowStockCount' => count($lowStockProducts)
+        ]);
     }
 }

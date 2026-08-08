@@ -11,11 +11,13 @@ use Illuminate\Database\Eloquent\Model; // Tambahan untuk parameter canAccessTen
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Collection; // Tambahan untuk return type getTenants
+use Illuminate\Support\Collection; 
+use Laravel\Sanctum\HasApiTokens;
 
 // 1. TAMBAHKAN implements FilamentUser dan HasTenants
 class User extends Authenticatable implements FilamentUser, HasTenants
 {
+    use HasApiTokens;
     use HasFactory;
     use HasUlids;
     use Notifiable;

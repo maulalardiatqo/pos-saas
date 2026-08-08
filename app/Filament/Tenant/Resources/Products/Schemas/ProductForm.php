@@ -18,6 +18,9 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Repeater;
 use Filament\Support\RawJs;
 
+// WAJIB DI-IMPORT UNTUK POP-UP VALIDASI
+use Filament\Notifications\Notification;
+
 class ProductForm
 {
     public static function configure(Schema $schema): Schema
@@ -97,16 +100,17 @@ class ProductForm
                                 ->searchable()
                                 ->preload(),
 
-                            // PERBAIKAN 1: Hapus stripCharacters, format rapi dari PHP, bersihkan saat dehydrate
+                            // PERBAIKAN 1: Tambahkan live(onBlur) agar nilainya langsung terbaca sistem
                             TextInput::make('cost_price')
                                 ->label('Harga Modal (HPP)')
                                 ->prefix('Rp')
                                 ->mask(RawJs::make('$money($input, \',\', \'.\', 0)'))
                                 ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
                                 ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
-                                ->default(0),
+                                ->default(0)
+                                ->live(onBlur: true),
 
-                            // PERBAIKAN 2
+                            // PERBAIKAN 2: Tambahkan validasi Pop-up Warning (Notification)
                             TextInput::make('base_price')
                                 ->label('Harga Jual Dasar')
                                 ->prefix('Rp')
@@ -114,7 +118,16 @@ class ProductForm
                                 ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
                                 ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
                                 ->required()
-                                ->default(0),
+                                ->default(0)
+                                ->live(onBlur: true)
+                                ->afterStateUpdated(function ($state, $get, \Livewire\Component $livewire) {
+                                    $cost = (float) str_replace('.', '', (string) $get('cost_price'));
+                                    $base = (float) str_replace('.', '', (string) $state);
+                                    
+                                    if ($base > 0 && $base < $cost) {
+                                        $livewire->js("alert(`🛑 PERINGATAN HARGA!\n\nHarga Jual Dasar (Rp " . number_format($base, 0, ',', '.') . ") Lebih Kecil dari Harga Modal HPP (Rp " . number_format($cost, 0, ',', '.') . ").\n\nMohon pastikan Anda tidak salah input!`);");
+                                    }
+                                }),
                         ]),
                     ]),
 
@@ -141,14 +154,14 @@ class ProductForm
                                         ->preload()
                                         ->disableOptionsWhenSelectedInSiblingRepeaterItems(),
 
-                                    // conversion_factor tetap numeric karena bukan format uang
                                     TextInput::make('conversion_factor')
                                         ->label('Isi per Satuan')
                                         ->numeric()
                                         ->required()
-                                        ->default(1),
+                                        ->default(1)
+                                        ->live(onBlur: true),
 
-                                    // PERBAIKAN 3
+                                    // PERBAIKAN 3: Validasi Cerdas untuk Multi Satuan
                                     TextInput::make('selling_price')
                                         ->label('Harga Jual')
                                         ->prefix('Rp')
@@ -156,7 +169,19 @@ class ProductForm
                                         ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
                                         ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
                                         ->required()
-                                        ->default(0),
+                                        ->default(0)
+                                        ->live(onBlur: true)
+                                        ->afterStateUpdated(function ($state, $get, \Livewire\Component $livewire) {
+                                            $parentCost = (float) str_replace('.', '', (string) $get('../../cost_price'));
+                                            $conversion = (float) $get('conversion_factor') ?: 1;
+                                            
+                                            $uomCost = $parentCost * $conversion;
+                                            $selling = (float) str_replace('.', '', (string) $state);
+                                            
+                                            if ($selling > 0 && $selling < $uomCost) {
+                                                $livewire->js("alert(`🛑 PERINGATAN HARGA SATUAN KHUSUS!\n\nHarga Jual (Rp " . number_format($selling, 0, ',', '.') . ") Lebih Kecil dari Harga Modal satuan ini (Rp " . number_format($uomCost, 0, ',', '.') . ").\n\nMohon periksa kembali!`);");
+                                            }
+                                        }),
 
                                     TextInput::make('barcode')
                                         ->label('Barcode Khusus')
@@ -217,7 +242,8 @@ class ProductForm
                                         ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
                                         ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
                                         ->required()
-                                        ->default(0),
+                                        ->default(0)
+                                        ->live(onBlur: true),
 
                                     // PERBAIKAN 5
                                     TextInput::make('price')
@@ -227,7 +253,16 @@ class ProductForm
                                         ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
                                         ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
                                         ->required()
-                                        ->default(0),
+                                        ->default(0)
+                                        ->live(onBlur: true)
+                                        ->afterStateUpdated(function ($state, $get, \Livewire\Component $livewire) {
+                                            $cost = (float) str_replace('.', '', (string) $get('cost_price'));
+                                            $price = (float) str_replace('.', '', (string) $state);
+                                            
+                                            if ($price > 0 && $price < $cost) {
+                                                $livewire->js("alert(`🛑 PERINGATAN HARGA VARIAN!\n\nHarga Jual Varian (Rp " . number_format($price, 0, ',', '.') . ") Lebih Kecil dari Harga Modal Varian (Rp " . number_format($cost, 0, ',', '.') . ").\n\nMohon periksa kembali!`);");
+                                            }
+                                        }),
                                 ]),
                             ])
                     ]),

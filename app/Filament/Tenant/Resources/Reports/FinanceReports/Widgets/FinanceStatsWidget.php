@@ -24,7 +24,7 @@ class FinanceStatsWidget extends BaseWidget
         $totalIncome = $incomeQuery->whereIn('type', ['sale', 'revenue', 'cashin'])->sum('grand_total');
 
         $expenseQuery = clone $query;
-        $totalExpense = $expenseQuery->whereIn('type', ['expense', 'cashout', 'refund', 'purchaseorder'])->sum('grand_total');
+        $totalExpense = $expenseQuery->whereIn('type', ['expense', 'cashout', 'refund'])->sum('grand_total');
 
         $netBalance = $totalIncome - $totalExpense;
 

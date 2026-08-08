@@ -53,6 +53,19 @@ class PurchaseOrderObserver
                 return;
             }
 
+            // -------------------------------------------------------------
+            // 1. POTONG SALDO AKUN KEUANGAN (JIKA STATUS COMPLETED & ADA AKUN)
+            // -------------------------------------------------------------
+            // Kita cek apakah akun dipilih dan nominal bayar/grand total ada
+            $paymentAmount = (float) ($purchaseOrder->amount_paid > 0 ? $purchaseOrder->amount_paid : $purchaseOrder->grand_total);
+            
+            if (!empty($purchaseOrder->account_id) && $paymentAmount > 0) {
+                // Pastikan saldo hanya dipotong sekali (hindari double decrement jika sudah pernah dipotong)
+                // Anda bisa menambahkan flag atau langsung mengurangi jika logika form memastikan ini aman
+                Account::where('id', $purchaseOrder->account_id)
+                    ->decrement('balance', $paymentAmount);
+            }
+
             foreach ($purchaseOrder->items as $item) {
                 $itemType = $item->product->type ?? $item->product->item_type ?? '';
                 if ($itemType === 'service') {
@@ -91,9 +104,7 @@ class PurchaseOrderObserver
                     'remarks'        => 'Pembelian otomatis dari ' . $purchaseOrder->transaction_number,
                 ]);
 
-                // -------------------------------------------------------------
                 // 3. LOGIKA MOVING AVERAGE (HPP BARU)
-                // -------------------------------------------------------------
                 $unitPrice = (float) ($item->cost_price > 0 ? $item->cost_price : $item->selling_price);
                 $pricePerBaseUom = $conversionFactor > 0 ? ($unitPrice / $conversionFactor) : $unitPrice;
                 
@@ -136,19 +147,16 @@ class PurchaseOrderObserver
         });
     }
 
-    // =================================================================
-    // TAMBAHAN BARU: FUNGSI REVERSAL SAAT PO DIHAPUS
-    // =================================================================
     public function deleting(PurchaseOrder $purchaseOrder): void
     {
-        // 1. KEMBALIKAN SALDO KAS/REKENING (Jika waktu buat PO sudah potong saldo)
-        if ($purchaseOrder->account_id && $purchaseOrder->in_out === 'out' && $purchaseOrder->amount_paid > 0) {
-            Account::where('id', $purchaseOrder->account_id)
-                ->increment('balance', $purchaseOrder->amount_paid);
-        }
-
-        // 2. KEMBALIKAN STOK BARANG (Hanya jika PO tersebut sebelumnya berstatus 'completed')
         if ($purchaseOrder->status === 'completed') {
+            
+            $paymentAmount = (float) ($purchaseOrder->amount_paid > 0 ? $purchaseOrder->amount_paid : $purchaseOrder->grand_total);
+            
+            if (!empty($purchaseOrder->account_id) && $paymentAmount > 0) {
+                Account::where('id', $purchaseOrder->account_id)
+                    ->increment('balance', $paymentAmount);
+            }
             $this->reverseStockMovements($purchaseOrder);
         }
     }

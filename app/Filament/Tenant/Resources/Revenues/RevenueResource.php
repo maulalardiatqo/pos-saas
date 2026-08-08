@@ -4,7 +4,7 @@ namespace App\Filament\Tenant\Resources\Revenues;
 
 use App\Filament\Tenant\Resources\Revenues\Pages;
 use App\Models\Transaction; 
-use App\Models\Account; // <-- Wajib import model Account
+use App\Models\Account; 
 use Filament\Forms;
 use Filament\Schemas\Schema;
 use Filament\Schemas\Components\Section;
@@ -16,7 +16,6 @@ use Filament\Support\Enums\Alignment;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Forms\Components\DateTimePicker;
 
-// Gunakan namespace Tables\Actions yang tepat untuk Filament 4
 use Filament\Actions\EditAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;

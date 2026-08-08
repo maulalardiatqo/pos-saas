@@ -4,50 +4,31 @@
             $tenant = filament()->getTenant();
             $showImage = $tenant->pos_with_img ?? true;
             
-            // Konfigurasi URL Midtrans Snap (Sandbox vs Production)
             $clientKey = $tenant->midtrans_client_key;
             $snapUrl = ($tenant->midtrans_is_production ?? false)
                 ? 'https://app.midtrans.com/snap/snap.js'
                 : 'https://app.sandbox.midtrans.com/snap/snap.js';
         @endphp
 
-        {{-- Muat SDK Snap jika Tenant memiliki Client Key --}}
         @if($clientKey)
             <script src="{{ $snapUrl }}" data-client-key="{{ $clientKey }}"></script>
         @endif
 
-        <!-- CSS FIX: MENYEMPURNAKAN KEKAKUAN GRID & KARTU PRODUK -->
         <style>
-            /* ========================================================
-               CSS VARIABLES (MENDUKUNG LIGHT & DARK MODE OTOMATIS)
-               ======================================================== */
             :root {
-                --pos-bg-fullscreen: #f1f5f9;
-                --pos-bg-panel: #ffffff;
-                --pos-bg-subpanel: #f8fafc;
-                --pos-bg-input: #ffffff;
-                --pos-bg-hover: #f1f5f9;
-                --pos-border: #e2e8f0;
-                --pos-border-strong: #cbd5e1;
-                --pos-text-main: #0f172a;
-                --pos-text-muted: #64748b;
+                --pos-bg-fullscreen: #f1f5f9; --pos-bg-panel: #ffffff; --pos-bg-subpanel: #f8fafc;
+                --pos-bg-input: #ffffff; --pos-bg-hover: #f1f5f9; --pos-border: #e2e8f0;
+                --pos-border-strong: #cbd5e1; --pos-text-main: #0f172a; --pos-text-muted: #64748b;
                 --pos-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
             }
 
             .dark {
-                --pos-bg-fullscreen: #09090b;
-                --pos-bg-panel: #1c1c1e;
-                --pos-bg-subpanel: #141416;
-                --pos-bg-input: #2c2c2e;
-                --pos-bg-hover: #3a3a3c;
-                --pos-border: #2c2c2e;
-                --pos-border-strong: #3a3a3c;
-                --pos-text-main: #ffffff;
-                --pos-text-muted: #a1a1aa;
+                --pos-bg-fullscreen: #09090b; --pos-bg-panel: #1c1c1e; --pos-bg-subpanel: #141416;
+                --pos-bg-input: #2c2c2e; --pos-bg-hover: #3a3a3c; --pos-border: #2c2c2e;
+                --pos-border-strong: #3a3a3c; --pos-text-main: #ffffff; --pos-text-muted: #a1a1aa;
                 --pos-shadow: 0 4px 20px rgba(0,0,0,0.3);
             }
 
-            /* BASE LAYOUT & FULLSCREEN */
             .pos-layout { display: flex; gap: 1.25rem; height: calc(100vh - 170px); width: 100%; box-sizing: border-box; font-family: ui-sans-serif, system-ui, sans-serif; }
             .pos-layout.is-fullscreen { 
                 position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
@@ -56,17 +37,14 @@
                 z-index: 9999; overflow: hidden; box-sizing: border-box !important;
             }
 
-            /* DINAMISASI LEBAR LAYOUT (GRID vs LIST) */
             .pos-left-side { display: flex; flex-direction: column; overflow: hidden; transition: flex 0.3s ease; }
             .pos-right-side { background: var(--pos-bg-panel); border: 1px solid var(--pos-border); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--pos-shadow); transition: all 0.3s ease; }
 
             .layout-grid .pos-left-side { flex: 3; }
             .layout-grid .pos-right-side { width: 380px; min-width: 380px; }
-
             .layout-list .pos-left-side { flex: 5; } 
             .layout-list .pos-right-side { flex: 7; width: auto; min-width: 0; }
 
-            /* AREA KIRI: PENCARIAN & KATEGORI */
             .pos-search-box { display: flex; gap: 1rem; background: var(--pos-bg-panel); padding: 0.75rem 1rem; border-radius: 12px; border: 1px solid var(--pos-border); margin-bottom: 1rem; align-items: center; box-shadow: var(--pos-shadow); }
             .pos-search-input { flex: 1; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.65rem 1rem; color: var(--pos-text-main); font-size: 0.875rem; outline: none; transition: border-color 0.2s; }
             .pos-search-input:focus { border-color: #3b82f6; }
@@ -79,7 +57,6 @@
             .pos-category-btn:hover { background: var(--pos-bg-hover); color: var(--pos-text-main); }
             .pos-category-btn.active { background: #2563eb; border-color: #2563eb; color: #ffffff; }
 
-            /* TAMPILAN BARANG (GRID / GAMBAR) */
             .pos-products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); grid-auto-rows: max-content; align-items: start; gap: 1rem; overflow-y: auto; flex: 1; padding-right: 4px; }
             .pos-product-card { background: var(--pos-bg-panel); border: 1px solid var(--pos-border); border-radius: 12px; padding: 0.75rem; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; box-shadow: var(--pos-shadow); }
             .pos-product-card:hover { border-color: #3b82f6; transform: translateY(-2px); }
@@ -90,7 +67,6 @@
             .pos-prod-price { font-size: 0.825rem; font-weight: 800; color: #3b82f6; }
             .pos-prod-stock { font-size: 0.7rem; color: var(--pos-text-muted); font-weight: 600; }
 
-            /* TAMPILAN BARANG (LIST / TANPA GAMBAR) */
             .pos-product-list-wrapper { display: flex; flex-direction: column; flex: 1; overflow: hidden; background: var(--pos-bg-panel); border: 1px solid var(--pos-border); border-radius: 12px; }
             .pos-list-header { display: grid; grid-template-columns: 6fr 3fr 2fr 1fr; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 2px solid var(--pos-border); font-size: 0.75rem; font-weight: 800; color: var(--pos-text-muted); text-transform: uppercase; }
             .pos-list-body { flex: 1; overflow-y: auto; padding-bottom: 0.5rem; }
@@ -103,7 +79,6 @@
             .pos-list-add-btn { background: var(--pos-bg-hover); border: 1px solid var(--pos-border-strong); color: var(--pos-text-main); width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.25rem; transition: all 0.2s; }
             .pos-list-item:hover .pos-list-add-btn { background: #3b82f6; color: white; border-color: #3b82f6; }
 
-            /* AREA KANAN: PELANGGAN & KERANJANG */
             .pos-cart-header { padding: 1rem; border-bottom: 1px solid var(--pos-border); font-size: 0.85rem; font-weight: 800; color: #3b82f6; text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: space-between; align-items: center; }
             .pos-btn-clear { font-size: 0.75rem; color: #ef4444; font-weight: 700; background: transparent; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.25rem; }
             
@@ -111,7 +86,6 @@
             .pos-customer-select { width: 100%; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.5rem 0.75rem; color: var(--pos-text-main); font-size: 0.75rem; font-weight: 600; outline: none; transition: border 0.2s; cursor: pointer; appearance: auto; }
             .pos-customer-select:focus { border-color: #3b82f6; }
 
-            /* LIST KERANJANG BELANJA */
             .pos-cart-items-list { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
             .pos-cart-table-header { display: grid; grid-template-columns: 5fr 3fr 2fr 2fr; gap: 0.5rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--pos-border); font-size: 0.75rem; font-weight: 800; color: var(--pos-text-muted); text-transform: uppercase; }
             .pos-cart-row { display: grid; grid-template-columns: 5fr 3fr 2fr 2fr; gap: 0.5rem; padding-bottom: 0.85rem; border-bottom: 1px dashed var(--pos-border); align-items: center; }
@@ -131,7 +105,6 @@
             
             .pos-cart-subtotal { font-size: 0.85rem; font-weight: 800; color: var(--pos-text-main); text-align: right; }
 
-            /* PANEL CHECKOUT & PEMBAYARAN */
             .pos-checkout-box { padding: 1rem; background: var(--pos-bg-subpanel); border-top: 1px solid var(--pos-border); display: flex; flex-direction: column; gap: 0.65rem; }
             .pos-row-summary { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--pos-text-muted); }
             .pos-val-summary { font-weight: 600; color: var(--pos-text-main); }
@@ -152,13 +125,11 @@
             .pos-btn-submit { width: 100%; background: #3b82f6; border: none; border-radius: 10px; color: white; font-weight: 800; font-size: 0.85rem; padding: 1rem; cursor: pointer; text-align: center; margin-top: 0.5rem; transition: background 0.2s; text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
             .pos-btn-submit:hover { background: #2563eb; }
             
-            /* SHORTCUT KBD & EMPTY STATES */
             .pos-footer-shortcut { background: var(--pos-bg-panel); padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.7rem; color: var(--pos-text-muted); display: flex; gap: 1rem; margin-top: 1rem; border: 1px solid var(--pos-border); }
             .pos-badge-kbd { padding: 0.15rem 0.4rem; border-radius: 4px; font-family: monospace; font-weight: bold; color: var(--pos-text-main); background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); }
             
             .pos-empty-view { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--pos-text-muted); padding: 4rem 0; font-size: 0.75rem; font-weight: 500; }
 
-            /* FULLSCREEN & FILAMENT OVERRIDES */
             body.is-pos-fullscreen .fi-sidebar,
             body.is-pos-fullscreen .fi-topbar { display: none !important; }
             body.is-pos-fullscreen .fi-main,
@@ -170,7 +141,6 @@
             }
             .fi-no > div { transform: scale(1.35) !important; transform-origin: center center !important; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75) !important; }
 
-            /* MODAL PEMBAYARAN */
             .pos-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 10000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
             .pos-modal-box { background: var(--pos-bg-panel); border-radius: 16px; width: 450px; max-width: 90%; padding: 1.5rem; box-shadow: var(--pos-shadow); display: flex; flex-direction: column; gap: 1rem; border: 1px solid var(--pos-border); }
             .pos-pm-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
@@ -208,16 +178,15 @@
             </div>
 
         @else
-            <!-- ================= PERBAIKAN BUG KEMBALIAN ================= -->
-            <!-- Memusatkan X-Data State Bayar, Tagihan, & Kembalian di Layout Utama agar seluruh komponen sinkron reaktif -->
+            <!-- ================= UTAMA POS KASIR ================= -->
             <div class="pos-layout {{ $showImage ? 'layout-grid' : 'layout-list' }}"
                 x-ref="posWrapper"
                 :class="{ 'is-fullscreen': isFullscreen }"
                 x-data="{ 
                     isFullscreen: false,
                     showPaymentModal: false,
+                    showRewardModal: false,
                     
-                    // STATE KEUANGAN (BERADA DI PARENT)
                     bayar: @entangle('amountPaid'),
 
                     toggleFullscreen() {
@@ -257,6 +226,9 @@
                         window.addEventListener('close-payment-modal', () => {
                             this.showPaymentModal = false;
                         });
+                        window.addEventListener('close-reward-modal', () => {
+                            this.showRewardModal = false;
+                        });
                         window.addEventListener('trigger-midtrans-snap', (event) => {
                             let snapToken = event.detail.snapToken;
                             let transactionId = event.detail.transactionId;
@@ -264,7 +236,6 @@
                             if (typeof window.snap !== 'undefined') {
                                 window.snap.pay(snapToken, {
                                     onSuccess: function(result) {
-                                        // Panggil fungsi controller Livewire untuk menyelesaikan transaksi
                                         @this.processPaymentSuccess(transactionId);
                                     },
                                     onPending: function(result) {
@@ -287,7 +258,6 @@
                 <!-- ================= KOLOM KIRI: DAFTAR PRODUK ================= -->
                 <div class="pos-left-side">
                     
-                    <!-- Pencarian -->
                     <div class="pos-search-box">
                         <input type="text" 
                             wire:model.live="search" 
@@ -295,14 +265,12 @@
                             placeholder="Cari nama produk / kode SKU / scan barcode... (F2)" 
                             class="pos-search-input">
                         <button class="pos-scan-btn">Scan Mode (F3)</button>
-                        <!-- Tombol Fullscreen -->
                         <button @click="toggleFullscreen()" class="pos-scan-btn" title="Layar Penuh (F11)" style="padding: 0.65rem; display: flex; align-items: center; justify-content: center;">
                             <svg x-show="!isFullscreen" style="width:20px; height:20px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
                             <svg x-show="isFullscreen" style="display:none; width:20px; height:20px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" /></svg>
                         </button>
                     </div>
 
-                    <!-- Filter Kategori -->
                     <div class="pos-category-bar">
                         <button wire:click="$set('activeCategory', 'all')" class="pos-category-btn {{ $activeCategory === 'all' ? 'active' : '' }}">
                             Semua
@@ -314,7 +282,6 @@
                         @endforeach
                     </div>
 
-                    <!-- KONDISI TAMPILAN GRID ATAU LIST -->
                     @if($showImage)
                         <!-- TAMPILAN 1: GRID DENGAN GAMBAR -->
                         <div class="pos-products-grid">
@@ -340,7 +307,6 @@
                     @else
                         <!-- TAMPILAN 2: LIST KASIR CEPAT TANPA GAMBAR -->
                         <div class="pos-product-list-wrapper">
-                            <!-- Header Table -->
                             <div class="pos-list-header">
                                 <div>Nama Barang</div>
                                 <div style="text-align: right;">Harga</div>
@@ -348,7 +314,6 @@
                                 <div></div>
                             </div>
                             
-                            <!-- Body Table -->
                             <div class="pos-list-body">
                                 @foreach($this->products as $product)
                                     <div wire:click="addToCart('{{ $product->id }}')" class="pos-list-item">
@@ -371,7 +336,6 @@
                         </div>
                     @endif
 
-                    <!-- Info Shortcut Bawah -->
                     <div class="pos-footer-shortcut">
                         <div><span class="pos-badge-kbd">F2</span> Cari</div>
                         <div><span class="pos-badge-kbd">F4</span> Bayar</div>
@@ -413,6 +377,15 @@
                                 </div>
                             </div>
                             
+                            <!-- TOMBOL KATALOG HADIAH -->
+                            @if(count($this->availableRewards) > 0)
+                                <div style="margin-top: 0.5rem; text-align: center; width: 100%;">
+                                    <button @click="showRewardModal = true" style="width: 100%; background: linear-gradient(135deg, #8b5cf6, #3b82f6); color: white; border: none; padding: 0.5rem; border-radius: 8px; font-weight: 800; font-size: 0.75rem; cursor: pointer; text-transform: uppercase;">
+                                        🎁 Buka Katalog Hadiah
+                                    </button>
+                                </div>
+                            @endif
+
                             <!-- FORM TUKAR POIN (REDEEM) -->
                             @if(filament()->getTenant()->is_loyalty_enabled && $customerInfo['points_balance'] > 0)
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; padding: 0.5rem 0; border-top: 1px dashed var(--pos-border);">
@@ -438,7 +411,6 @@
                     <!-- List Item Nota -->
                     <div class="pos-cart-items-list">
                         @if(count($cart) > 0)
-                            <!-- Table Layout Header Keranjang -->
                             <div class="pos-cart-table-header">
                                 <div>Nama Barang</div>
                                 <div style="text-align: center;">Qty</div>
@@ -447,7 +419,7 @@
                             </div>
                         @endif
 
-                        @forelse($cart as $item)
+                        @forelse($cart as $key => $item)
                             <div class="pos-cart-row">
                                 <!-- NAMA & TIPE -->
                                 <div>
@@ -456,25 +428,33 @@
                                         <span style="font-size:0.6rem; background:#3b82f6; color:#fff; padding:2px 4px; border-radius:4px; display:inline-block; margin-top:2px;">Paket</span>
                                     @endif
                                     
-                                    <select id="uom-select-{{ $item['id'] }}" wire:change="changeUom('{{ $item['id'] }}', $event.target.value)" class="pos-cart-uom-select" style="margin-top: 4px; display: block;">
-                                        @foreach($item['available_uoms'] as $uomOpt)
-                                            <option value="{{ $uomOpt['id'] }}" {{ $item['uom_id'] == $uomOpt['id'] ? 'selected' : '' }}>
-                                                {{ $uomOpt['name'] }}
-                                            </option>
-                                        @endforeach
-                                    </select>
+                                    @if(isset($item['is_reward']))
+                                        <span style="font-size:0.65rem; background:#8b5cf6; color:white; padding:2px 4px; border-radius:4px; font-weight:bold; display:inline-block; margin-top: 4px;">{{ $item['uom_name'] }} (Hadiah)</span>
+                                    @else
+                                        <select id="uom-select-{{ $item['id'] }}" wire:change="changeUom('{{ $item['id'] }}', $event.target.value)" class="pos-cart-uom-select" style="margin-top: 4px; display: block;">
+                                            @foreach($item['available_uoms'] as $uomOpt)
+                                                <option value="{{ $uomOpt['id'] }}" {{ $item['uom_id'] == $uomOpt['id'] ? 'selected' : '' }}>
+                                                    {{ $uomOpt['name'] }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    @endif
                                 </div>
                                 
                                 <!-- QTY CONTROLS -->
                                 <div class="pos-qty-actions">
-                                    <button wire:click="updateQty('{{ $item['id'] }}', -1)" class="pos-qty-btn">-</button>
-                                    <input type="number" 
-                                        min="1"
-                                        value="{{ $item['qty'] }}"
-                                        wire:change="setQty('{{ $item['id'] }}', $event.target.value)"
-                                        x-on:focus="$el.select()"
-                                        class="pos-qty-input">
-                                    <button wire:click="updateQty('{{ $item['id'] }}', 1)" class="pos-qty-btn">+</button>
+                                    @if(isset($item['is_reward']))
+                                        <div style="width: 100%; text-align: center; font-weight: bold; font-size: 0.85rem; padding: 0.25rem;">1</div>
+                                    @else
+                                        <button wire:click="updateQty('{{ $item['id'] }}', -1)" class="pos-qty-btn">-</button>
+                                        <input type="number" 
+                                            min="1"
+                                            value="{{ $item['qty'] }}"
+                                            wire:change="setQty('{{ $item['id'] }}', $event.target.value)"
+                                            x-on:focus="$el.select()"
+                                            class="pos-qty-input">
+                                        <button wire:click="updateQty('{{ $item['id'] }}', 1)" class="pos-qty-btn">+</button>
+                                    @endif
                                 </div>
                                 
                                 <!-- HARGA SATUAN -->
@@ -485,7 +465,7 @@
                                 <!-- SUBTOTAL & DELETE -->
                                 <div style="display: flex; justify-content: flex-end; align-items: center;">
                                     <div class="pos-cart-subtotal">{{ number_format((float)$item['price'] * (float)$item['qty'], 0, ',', '.') }}</div>
-                                    <button wire:click="removeItem('{{ $item['id'] }}')" class="pos-btn-delete" title="Hapus Item">
+                                    <button wire:click="removeItem('{{ $key }}')" class="pos-btn-delete" title="Hapus Item">
                                         <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                                     </button>
                                 </div>
@@ -541,8 +521,21 @@
                             <span class="pos-val-summary">- Rp {{ number_format($this->getPointDiscountAmount(), 0, ',', '.') }}</span>
                         </div>
                         @endif
+
+                        <!-- DISKON REWARD VOUCHER -->
+                        @foreach($claimedRewards as $k => $reward)
+                            @if($reward['type'] === 'discount')
+                                <div class="pos-row-summary" style="color: #8b5cf6; align-items: center; margin-top: 0.25rem;">
+                                    <span>🎁 {{ $reward['name'] }}</span>
+                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <span class="pos-val-summary">- Rp {{ number_format($reward['discount_amount'], 0, ',', '.') }}</span>
+                                        <button wire:click="removeReward('{{ $k }}')" style="background: none; border: none; color: #ef4444; font-weight: bold; cursor: pointer;" title="Hapus Hadiah">X</button>
+                                    </div>
+                                </div>
+                            @endif
+                        @endforeach
                         
-                        <!-- PERBAIKAN: Diskon Kasir tanpa x-data terpisah -->
+                        <!-- Diskon Kasir -->
                         <div class="pos-row-summary" style="align-items: center; justify-content: space-between; margin-top: 0.25rem;">
                             <span>Diskon Kasir (Manual)</span>
                             <input type="text" 
@@ -558,7 +551,6 @@
                             <div style="display: flex; flex-direction: column;">
                                 <span class="pos-grand-lbl">TOTAL BAYAR</span>
                                 
-                                <!-- DINAMIS EARNED POINTS -->
                                 @if($customerInfo && filament()->getTenant()->is_loyalty_enabled && filament()->getTenant()->loyalty_spend_amount > 0)
                                     @php
                                         $estPts = floor($this->getGrandTotal() / filament()->getTenant()->loyalty_spend_amount) * filament()->getTenant()->loyalty_point_earned;
@@ -575,7 +567,6 @@
                         <div class="pos-pay-wrapper">
                             <div style="width: 50%;">
                                 <label class="pos-pay-lbl">Bayar (Rp)</label>
-                                <!-- PERBAIKAN: Bayar menggunakan state global 'bayar' -->
                                 <input type="text" 
                                     :value="bayar ? parseInt(bayar).toLocaleString('id-ID') : '0'"
                                     @input="let raw = $event.target.value.replace(/\D/g, ''); bayar = raw ? parseInt(raw) : 0; $event.target.value = raw ? parseInt(raw).toLocaleString('id-ID') : '';"
@@ -587,7 +578,6 @@
                             <div style="width: 50%;">
                                 <label class="pos-pay-lbl" style="color: #22c55e;">Kembali</label>
                                 <div class="pos-change-container" style="margin-top: 4px; padding: 0.55rem 0.75rem;">
-                                    <!-- PERBAIKAN: Kembalian langsung mengambil computed value dari global state -->
                                     <span class="font-bold" style="font-size: 1rem;" x-text="Math.max(0, (parseInt(bayar) || 0) - {{ $this->getGrandTotal() }}).toLocaleString('id-ID')"></span>
                                 </div>
                             </div>
@@ -609,7 +599,6 @@
                             Total Tagihan: <strong style="color: var(--pos-text-main);">Rp <span x-text="parseInt({{ $this->getGrandTotal() }}).toLocaleString('id-ID')"></span></strong>
                         </p>
 
-                        <!-- GRID OPSI PEMBAYARAN -->
                         <div class="pos-pm-grid">
                             <button wire:click="$set('paymentMethod', 'cash')" class="pos-pm-btn" :class="{ 'active': $wire.paymentMethod === 'cash' }">
                                 <span style="font-size: 1.5rem;">💵</span> Tunai
@@ -641,7 +630,6 @@
                                 @endforeach
                             </select>
                         </div>
-                        <!-- TOMBOL SELESAI -->
                         <div style="min-height: 3.5rem; margin-top: 0.5rem;">
                             <button x-show="$wire.paymentMethod !== ''" x-transition wire:click="submitTransaction" class="pos-btn-submit" style="width: 100%; padding: 1rem; font-size: 1rem; margin-top: 0;">
                                 SELESAI & CETAK NOTA
@@ -653,8 +641,46 @@
                         </button>
                     </div>
                 </div>
-                <!-- ================= END MODAL ================= -->
 
+                <!-- ================= MODAL KATALOG HADIAH ================= -->
+                <div x-show="showRewardModal" class="pos-modal-overlay" style="display: none;" x-transition x-on:close-reward-modal.window="showRewardModal = false">
+                    <div class="pos-modal-box" @click.away="showRewardModal = false" style="width: 600px; max-width: 95%;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--pos-border); padding-bottom: 1rem; margin-bottom: 1rem;">
+                            <h3 class="pos-modal-title" style="margin: 0;">🎁 Katalog Hadiah</h3>
+                            <button @click="showRewardModal = false" style="background: transparent; border: none; font-size: 1.25rem; font-weight: bold; cursor: pointer; color: var(--pos-text-muted);">&times;</button>
+                        </div>
+                        
+                        <p style="text-align: center; font-size: 0.85rem; font-weight: 700;">
+                            Sisa Poin Anda: <span style="color: #3b82f6;">{{ number_format(($customerInfo['points_balance'] ?? 0) - $this->getTotalPointsUsed(), 0, ',', '.') }} Pts</span>
+                        </p>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; max-height: 50vh; overflow-y: auto; padding-right: 0.5rem;">
+                            @foreach($this->availableRewards as $reward)
+                                @php
+                                    $isClaimed = isset($claimedRewards[$reward->id]);
+                                    $canAfford = (($customerInfo['points_balance'] ?? 0) - $this->getTotalPointsUsed()) >= $reward->points_required;
+                                @endphp
+                                <div style="border: 1px solid var(--pos-border-strong); border-radius: 12px; padding: 1rem; text-align: center; background: {{ $isClaimed ? 'rgba(34, 197, 94, 0.1)' : 'var(--pos-bg-panel)' }};">
+                                    @if($reward->image)
+                                        <img src="{{ asset('storage/'.$reward->image) }}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; margin: 0 auto 0.5rem;">
+                                    @else
+                                        <div style="width: 60px; height: 60px; background: #f1f5f9; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.5rem; font-size: 24px;">🎁</div>
+                                    @endif
+                                    <h4 style="margin: 0 0 0.25rem; font-size: 0.85rem; font-weight: 800; color: var(--pos-text-main);">{{ $reward->name }}</h4>
+                                    <p style="margin: 0 0 1rem; font-size: 0.75rem; color: #8b5cf6; font-weight: 700;">{{ $reward->points_required }} Poin</p>
+                                    
+                                    @if($isClaimed)
+                                        <button disabled style="width: 100%; background: #22c55e; color: white; border: none; padding: 0.5rem; border-radius: 6px; font-weight: bold; cursor: not-allowed;">Diklaim ✅</button>
+                                    @elseif($canAfford)
+                                        <button wire:click="claimReward('{{ $reward->id }}')" style="width: 100%; background: #3b82f6; color: white; border: none; padding: 0.5rem; border-radius: 6px; font-weight: bold; cursor: pointer;">Tukar Poin</button>
+                                    @else
+                                        <button disabled style="width: 100%; background: var(--pos-border-strong); color: var(--pos-text-muted); border: none; padding: 0.5rem; border-radius: 6px; font-weight: bold; cursor: not-allowed;">Poin Kurang</button>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
             </div>
         @endif
     </x-filament-panels::page>
