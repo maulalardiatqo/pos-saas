@@ -13,6 +13,8 @@ use App\Observers\PointHistoryObserver;
 use App\Models\Outlet;
 use App\Models\PurchaseOrder;
 use App\Models\PointHistory;
+use Laravel\Sanctum\Sanctum; 
+use App\Models\PersonalAccessToken;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -34,5 +36,6 @@ class AppServiceProvider extends ServiceProvider
         Outlet::observe(OutletObserver::class);
         PurchaseOrder::observe(PurchaseOrderObserver::class);
         PointHistory::observe(PointHistoryObserver::class);
+        Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
     }
 }
