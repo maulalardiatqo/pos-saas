@@ -102,4 +102,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('outlets', \App\Http\Controllers\Api\OutletController::class);
     Route::apiResource('users', \App\Http\Controllers\Api\UserController::class);
+    // reports
+    Route::get('reports/finance', [\App\Http\Controllers\Api\FinanceReportController::class, 'index']);
 });
