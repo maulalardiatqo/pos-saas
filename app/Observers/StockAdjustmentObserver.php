@@ -32,10 +32,9 @@ class StockAdjustmentObserver
                     
                 $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0;
                 
-                // 2. BACKEND CALCULATION: Tarik conversion_factor langsung dari database (Tahan Banting)
                 $pivotData = DB::table('product_uoms')
                     ->where('product_id', $item->product_id)
-                    ->where('uom_id', $item->uom_id) // Pastikan tabel items Anda punya kolom uom_id
+                    ->where('uom_id', $item->uom_id) 
                     ->whereNull('deleted_at')
                     ->first();
                 $conversionFactor = $pivotData ? (float) $pivotData->conversion_factor : 1;

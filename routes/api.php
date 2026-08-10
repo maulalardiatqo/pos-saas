@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\PosController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\PurchaseOrderController;
+use App\Http\Controllers\Api\PosSyncController;
 
 Route::post('/midtrans/notification', [MidtransWebhookController::class, 'handleNotification']);
 
@@ -106,4 +107,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('reports/finance', [\App\Http\Controllers\Api\FinanceReportController::class, 'index']);
     Route::get('reports/sales', [\App\Http\Controllers\Api\SalesReportController::class, 'index']);
     Route::get('reports/products', [\App\Http\Controllers\Api\ProductReportController::class, 'index']);
+
+    Route::get('/pos/sync/pull', [PosSyncController::class, 'pullMasterData']);
+    Route::post('/pos/sync/push', [PosSyncController::class, 'pushOfflineData']);
 });
