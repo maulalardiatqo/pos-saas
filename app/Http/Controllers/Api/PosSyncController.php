@@ -43,6 +43,13 @@ class PosSyncController extends Controller
             'midtrans_is_production' => (bool) ($company->midtrans_is_production ?? false),
         ];
 
+        $accounts = \App\Models\Account::with('outlet:id,name')
+            ->where('company_id', $tenantId)
+            ->where('is_active', true)
+            ->where(function ($q) use ($outletId) {
+                // Hanya ambil akun yang global (null) atau khusus outlet kasir ini
+                $q->where('outlet_id', $outletId)->orWhereNull('outlet_id');
+            })->get(['id', 'name', 'payment_methods', 'outlet_id', 'account_number']);
         // =====================================================================
         // 2. KATEGORI
         // =====================================================================
@@ -147,6 +154,7 @@ class PosSyncController extends Controller
             'customers' => $customers,
             'available_rewards' => $rewards,
             'products' => $products,
+            'accounts' => $accounts,
         ]);
     }
     // =========================================================================
