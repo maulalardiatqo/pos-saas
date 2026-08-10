@@ -510,6 +510,9 @@ class PosCashier extends Page
             ->get();
     }
 
+    // =========================================================================
+    // UPDATE SUBMIT TRANSACTION DENGAN RACE CONDITION HANDLING
+    // =========================================================================
     public function submitTransaction()
     {
         if (empty($this->cart)) {
@@ -526,100 +529,140 @@ class PosCashier extends Page
         $company = filament()->getTenant();
         $companyId = $company?->id;
 
-        $requiredStocks = []; 
-        foreach ($this->cart as $item) {
-            $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
-            $isService = ($item['item_type'] ?? 'goods') === 'service';
+        try {
+            // [!!! PENTING !!!] Buka transaksi DATABASE di AWAL sebelum mengecek stok
+            DB::beginTransaction();
 
-            if ($isBundle) {
-                $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
-                foreach ($components as $comp) {
-                    $child = DB::table('products')->where('id', $comp->child_product_id)->first();
-                    if ($child && $child->item_type === 'goods') {
-                        $qtyNeeded = $item['qty'] * $item['conversion_factor'] * (float)$comp->quantity;
-                        $requiredStocks[$child->id] = ($requiredStocks[$child->id] ?? 0) + $qtyNeeded;
+            // --- 1. HITUNG KEBUTUHAN STOK ---
+            $requiredStocks = []; 
+            foreach ($this->cart as $item) {
+                $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
+                $isService = ($item['item_type'] ?? 'goods') === 'service';
+
+                if ($isBundle) {
+                    $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
+                    foreach ($components as $comp) {
+                        $child = DB::table('products')->where('id', $comp->child_product_id)->first();
+                        if ($child && $child->item_type === 'goods') {
+                            $qtyNeeded = $item['qty'] * $item['conversion_factor'] * (float)$comp->quantity;
+                            $requiredStocks[$child->id] = ($requiredStocks[$child->id] ?? 0) + $qtyNeeded;
+                        }
+                    }
+                } elseif (!$isService && empty($item['is_reward'])) {
+                    $qtyNeeded = $item['qty'] * $item['conversion_factor'];
+                    $requiredStocks[$item['id']] = ($requiredStocks[$item['id']] ?? 0) + $qtyNeeded;
+                }
+            }
+
+            // --- 2. PESSIMISTIC LOCKING: KUNCI PRODUK YANG MAU DIBELI ---
+            if (!empty($requiredStocks)) {
+                $productIdsToLock = array_keys($requiredStocks);
+                
+                // MENGURUTKAN ID SANGAT PENTING: Mencegah 'Deadlock' (Error MySQL)
+                sort($productIdsToLock);
+
+                // Eksekusi Kunci! (Kasir lain akan 'ngantre/loading' sampai transaksi ini selesai)
+                $lockedProducts = Product::whereIn('id', $productIdsToLock)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
+
+                // --- 3. VALIDASI STOK (Aman dari Race Condition) ---
+                foreach ($requiredStocks as $prodId => $totalNeeded) {
+                    $stockMov = DB::table('stock_movements')
+                        ->where('product_id', $prodId)
+                        ->where('outlet_id', $outletId)
+                        ->latest('created_at')
+                        ->first();
+                        
+                    $available = $stockMov ? (float)$stockMov->balance_after : 0;
+                    
+                    if ($totalNeeded > $available) {
+                        $prodName = $lockedProducts[$prodId]->name ?? 'Produk';
+                        DB::rollBack(); // Buka Kunci
+                        
+                        Notification::make()
+                            ->title("Stok komponen kurang!")
+                            ->body("Dibutuhkan {$totalNeeded} pcs untuk {$prodName}. Hanya tersedia {$available} pcs.")
+                            ->danger()
+                            ->send();
+                            
+                        $this->dispatch('close-payment-modal');
+                        return; 
                     }
                 }
-            } elseif (!$isService) {
-                $qtyNeeded = $item['qty'] * $item['conversion_factor'];
-                $requiredStocks[$item['id']] = ($requiredStocks[$item['id']] ?? 0) + $qtyNeeded;
-            }
-        }
-
-        foreach ($requiredStocks as $prodId => $totalNeeded) {
-            $stockMov = DB::table('stock_movements')->where('product_id', $prodId)->where('outlet_id', $outletId)->latest('created_at')->first();
-            $available = $stockMov ? (float)$stockMov->balance_after : 0;
-            
-            if ($totalNeeded > $available) {
-                $prodName = DB::table('products')->where('id', $prodId)->value('name');
-                Notification::make()->title("Stok komponen kurang!")->body("Dibutuhkan {$totalNeeded} pcs untuk bahan {$prodName}. Hanya tersedia {$available} pcs.")->danger()->send();
-                $this->dispatch('close-payment-modal');
-                return; 
-            }
-        }
-
-        $isMidtransPayment = ($this->paymentMethod === 'qris' || $this->paymentMethod === 'ewallet') && !empty($company->midtrans_server_key);
-
-        if ($isMidtransPayment) {
-            $rawGrandTotal = $this->getGrandTotal();
-            $cleanGrandTotal = (int) preg_replace('/[^0-9]/', '', (string) round($rawGrandTotal));
-
-            if ($cleanGrandTotal < 1) {
-                Notification::make()->title('Gagal Transaksi QRIS')->body('Total pembayaran bernilai Rp ' . number_format($rawGrandTotal, 0, ',', '.') . '. Nominal minimal Midtrans adalah Rp 1.')->danger()->send();
-                return;
             }
 
+            // --- 4. JIKA STOK CUKUP, BUAT TRANSAKSI ---
+            $isMidtransPayment = ($this->paymentMethod === 'qris' || $this->paymentMethod === 'ewallet') && !empty($company->midtrans_server_key);
             $uniqueOrderId = 'POS-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
-            $itemDetails = [];
-            foreach ($this->cart as $item) {
-                $itemDetails[] = [
-                    'id' => (string) $item['id'], 'price' => (int) preg_replace('/[^0-9]/', '', (string) round($item['price'])),
-                    'quantity' => (int) $item['qty'], 'name' => substr($item['name'], 0, 50),
-                ];
-            }
 
-            $totalDiscount = $this->getMembershipDiscountAmount() + $this->getVoucherDiscountAmount() + (float)($this->discount ?: 0) + $this->getPointDiscountAmount() + $this->getRewardDiscountAmount();
+            // (Khusus Midtrans)
+            if ($isMidtransPayment) {
+                $rawGrandTotal = $this->getGrandTotal();
+                $cleanGrandTotal = (int) preg_replace('/[^0-9]/', '', (string) round($rawGrandTotal));
 
-            if ($totalDiscount > 0) {
-                $itemDetails[] = [
-                    'id' => 'DISCOUNT', 'price' => -1 * (int) preg_replace('/[^0-9]/', '', (string) round($totalDiscount)),
-                    'quantity' => 1, 'name' => 'Total Diskon Nota',
-                ];
-            }
+                if ($cleanGrandTotal < 1) {
+                    DB::rollBack();
+                    Notification::make()->title('Gagal Transaksi QRIS')->body('Nominal minimal Midtrans adalah Rp 1.')->danger()->send();
+                    return;
+                }
 
-            $transaction = Transaction::create([
-                'company_id' => $companyId, 'outlet_id' => $outletId, 'user_id' => auth()->id(),
-                'pos_session_id' => ($company->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
-                'customer_id' => $this->customerId ?: null, 'account_id' => $this->accountId, 
-                'transaction_number' => $uniqueOrderId, 'type' => 'sale', 'in_out' => 'in', 'status' => 'pending',
-                'payment_method' => $this->paymentMethod, 'subtotal' => $this->getSubtotal(),
-                'discount' => $this->discount ?: 0, 'points_used' => $this->getTotalPointsUsed(),
-                'point_discount_amount' => $this->getPointDiscountAmount() + $this->getRewardDiscountAmount(),
-                'grand_total' => $cleanGrandTotal, 'amount_paid' => $cleanGrandTotal, 'amount_change' => 0,
-            ]);
+                $itemDetails = [];
+                foreach ($this->cart as $item) {
+                    $itemDetails[] = [
+                        'id' => (string) $item['id'], 'price' => (int) preg_replace('/[^0-9]/', '', (string) round($item['price'])),
+                        'quantity' => (int) $item['qty'], 'name' => substr($item['name'], 0, 50),
+                    ];
+                }
 
-            foreach ($this->cart as $item) {
-                TransactionItem::create([
-                    'company_id' => $companyId, 'transaction_id' => $transaction->id,
-                    'product_id' => $item['id'], 'uom_id' => $item['uom_id'], 'qty' => $item['qty'],
-                    'conversion_factor' => $item['conversion_factor'], 'base_qty' => $item['qty'] * $item['conversion_factor'],
-                    'cost_price' => ($item['cost'] ?? 0) * $item['conversion_factor'], 
-                    'selling_price' => $item['price'], 'subtotal' => $item['price'] * $item['qty'],
+                $totalDiscount = $this->getMembershipDiscountAmount() + $this->getVoucherDiscountAmount() + (float)($this->discount ?: 0) + $this->getPointDiscountAmount() + $this->getRewardDiscountAmount();
+
+                if ($totalDiscount > 0) {
+                    $itemDetails[] = [
+                        'id' => 'DISCOUNT', 'price' => -1 * (int) preg_replace('/[^0-9]/', '', (string) round($totalDiscount)),
+                        'quantity' => 1, 'name' => 'Total Diskon Nota',
+                    ];
+                }
+
+                $transaction = Transaction::create([
+                    'company_id' => $companyId, 'outlet_id' => $outletId, 'user_id' => auth()->id(),
+                    'pos_session_id' => ($company->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
+                    'customer_id' => $this->customerId ?: null, 'account_id' => $this->accountId, 
+                    'transaction_number' => $uniqueOrderId, 'type' => 'sale', 'in_out' => 'in', 'status' => 'pending',
+                    'payment_method' => $this->paymentMethod, 'subtotal' => $this->getSubtotal(),
+                    'discount' => $this->discount ?: 0, 'points_used' => $this->getTotalPointsUsed(),
+                    'point_discount_amount' => $this->getPointDiscountAmount() + $this->getRewardDiscountAmount(),
+                    'grand_total' => $cleanGrandTotal, 'amount_paid' => $cleanGrandTotal, 'amount_change' => 0,
                 ]);
+
+                foreach ($this->cart as $item) {
+                    TransactionItem::create([
+                        'company_id' => $companyId, 'transaction_id' => $transaction->id,
+                        'product_id' => $item['id'], 'uom_id' => $item['uom_id'], 'qty' => $item['qty'],
+                        'conversion_factor' => $item['conversion_factor'], 'base_qty' => $item['qty'] * $item['conversion_factor'],
+                        'cost_price' => ($item['cost'] ?? 0) * $item['conversion_factor'], 
+                        'selling_price' => $item['price'], 'subtotal' => $item['price'] * $item['qty'],
+                    ]);
+                }
+
+                try {
+                    $snapToken = MidtransService::createTransaction($company, ['order_id' => $uniqueOrderId, 'gross_amount' => $cleanGrandTotal], $itemDetails);
+                    
+                    DB::commit(); // SELESAI MIDTRANS, LEPAS KUNCI
+                    
+                    $this->dispatch('close-payment-modal');
+                    $this->dispatch('trigger-midtrans-snap', snapToken: $snapToken, transactionId: $transaction->id);
+                    return;
+                } catch (\Exception $e) {
+                    DB::rollBack(); // MIDTRANS GAGAL, BATALKAN SEMUA
+                    Notification::make()->title('Gagal terhubung ke Midtrans')->body($e->getMessage())->danger()->send(); 
+                    return;
+                }
             }
 
-            try {
-                $snapToken = MidtransService::createTransaction($company, ['order_id' => $uniqueOrderId, 'gross_amount' => $cleanGrandTotal], $itemDetails);
-                $this->dispatch('close-payment-modal');
-                $this->dispatch('trigger-midtrans-snap', snapToken: $snapToken, transactionId: $transaction->id);
-                return;
-            } catch (\Exception $e) {
-                $transaction->delete(); 
-                Notification::make()->title('Gagal terhubung ke Midtrans')->body($e->getMessage())->danger()->send(); return;
-            }
-        }
-
-        $transaction = DB::transaction(function () use ($outletId, $companyId) {
+            // (Pembayaran Manual/Cash)
             $newTrx = Transaction::create([
                 'company_id' => $companyId, 'outlet_id' => $outletId, 'user_id' => auth()->id(),
                 'pos_session_id' => (filament()->getTenant()->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
@@ -643,14 +686,20 @@ class PosCashier extends Page
                 ]);
             }
 
+            // Eksekusi potong stok, jurnal dll
             $this->fulfillTransaction($newTrx);
-            return $newTrx;
-        });
+            
+            DB::commit(); // SELESAI CASH, LEPAS KUNCI (UNLOCKED)
 
-        Notification::make()->title('Transaksi Berhasil!')->success()->send();
-        $this->dispatch('open-receipt', url: route('pos.receipt', $transaction->id));
-        $this->dispatch('close-payment-modal'); 
-        $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards']);
+            Notification::make()->title('Transaksi Berhasil!')->success()->send();
+            $this->dispatch('open-receipt', url: route('pos.receipt', $newTrx->id));
+            $this->dispatch('close-payment-modal'); 
+            $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards']);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Notification::make()->title('Terjadi Kesalahan')->body($e->getMessage())->danger()->send();
+        }
     }
 
     public function processPaymentSuccess($transactionId)

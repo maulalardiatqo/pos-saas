@@ -13,7 +13,7 @@ use App\Models\StockMovement;
 use App\Models\PointHistory;
 use App\Models\PosSession;
 use App\Models\Voucher;
-use App\Models\LoyaltyReward; // <-- WAJIB IMPORT INI
+use App\Models\LoyaltyReward; 
 use App\Services\MidtransService; 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\DB;
 class PosController extends Controller
 {
     // =========================================================================
-    // 1. AMBIL DATA MASTER POS (Produk, Pelanggan, Rekening, Reward)
+    // 1. AMBIL DATA MASTER POS
     // =========================================================================
     public function getData(Request $request)
     {
@@ -106,7 +106,6 @@ class PosController extends Controller
                 $q->where('outlet_id', $outletId)->orWhereNull('outlet_id');
             })->get(['id', 'name', 'payment_methods', 'outlet_id']);
 
-        // AMBIL DATA KATALOG HADIAH
         $availableRewards = LoyaltyReward::with('product')
             ->where('company_id', $tenantId)
             ->where('is_active', true)
@@ -129,12 +128,12 @@ class PosController extends Controller
             'products' => $products,
             'customers' => $customers,
             'accounts' => $accounts,
-            'available_rewards' => $availableRewards // <-- Kirim ke Flutter
+            'available_rewards' => $availableRewards 
         ]);
     }
 
     // =========================================================================
-    // 2. LOGIKA CHECKOUT (Validasi, Midtrans, & Transaksi)
+    // 2. LOGIKA CHECKOUT (DILENGKAPI PESSIMISTIC LOCKING)
     // =========================================================================
     public function checkout(Request $request)
     {
@@ -154,49 +153,75 @@ class PosController extends Controller
         if (empty($cart)) return response()->json(['success' => false, 'message' => 'Keranjang kosong!'], 400);
         if (empty($accountId)) return response()->json(['success' => false, 'message' => 'Pilih Rekening Tujuan!'], 400);
 
-        // --- 1. PRE-VALIDASI STOK ---
-        $requiredStocks = []; 
-        foreach ($cart as $item) {
-            $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
-            $isService = ($item['item_type'] ?? 'goods') === 'service';
-
-            if ($isBundle) {
-                $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
-                foreach ($components as $comp) {
-                    $child = DB::table('products')->where('id', $comp->child_product_id)->first();
-                    if ($child && $child->item_type === 'goods') {
-                        $qtyNeeded = $item['qty'] * ($item['conversion_factor'] ?? 1) * (float)$comp->quantity;
-                        $requiredStocks[$child->id] = ($requiredStocks[$child->id] ?? 0) + $qtyNeeded;
-                    }
-                }
-            } elseif (!$isService && empty($item['is_reward'])) { // Abaikan validasi limit API jika itu barang reward
-                $qtyNeeded = $item['qty'] * ($item['conversion_factor'] ?? 1);
-                $requiredStocks[$item['id']] = ($requiredStocks[$item['id']] ?? 0) + $qtyNeeded;
-            }
-        }
-
-        foreach ($requiredStocks as $prodId => $totalNeeded) {
-            $stockMov = DB::table('stock_movements')->where('product_id', $prodId)->where('outlet_id', $outletId)->latest('created_at')->first();
-            $available = $stockMov ? (float)$stockMov->balance_after : 0;
-            
-            if ($totalNeeded > $available) {
-                $prodName = DB::table('products')->where('id', $prodId)->value('name');
-                return response()->json([
-                    'success' => false, 
-                    'message' => "Stok kurang! Dibutuhkan {$totalNeeded} pcs untuk {$prodName}."
-                ], 400);
-            }
-        }
-
         try {
+            // [!!! PENTING !!!] Buka transaksi DATABASE di AWAL sebelum mengecek stok
             DB::beginTransaction();
 
+            // --- 1. HITUNG KEBUTUHAN STOK ---
+            $requiredStocks = []; 
+            foreach ($cart as $item) {
+                $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
+                $isService = ($item['item_type'] ?? 'goods') === 'service';
+
+                if ($isBundle) {
+                    $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
+                    foreach ($components as $comp) {
+                        $child = DB::table('products')->where('id', $comp->child_product_id)->first();
+                        if ($child && $child->item_type === 'goods') {
+                            $qtyNeeded = $item['qty'] * ($item['conversion_factor'] ?? 1) * (float)$comp->quantity;
+                            $requiredStocks[$child->id] = ($requiredStocks[$child->id] ?? 0) + $qtyNeeded;
+                        }
+                    }
+                } elseif (!$isService && empty($item['is_reward'])) { 
+                    $qtyNeeded = $item['qty'] * ($item['conversion_factor'] ?? 1);
+                    $requiredStocks[$item['id']] = ($requiredStocks[$item['id']] ?? 0) + $qtyNeeded;
+                }
+            }
+
+            // --- 2. PESSIMISTIC LOCKING: KUNCI PRODUK YANG MAU DIBELI ---
+            if (!empty($requiredStocks)) {
+                $productIdsToLock = array_keys($requiredStocks);
+                
+                // MENGURUTKAN ID SANGAT PENTING: Mencegah 'Deadlock' (Error MySQL) 
+                // jika Kasir A dan Kasir B membeli produk yang sama namun urutan keranjangnya beda.
+                sort($productIdsToLock);
+
+                // Eksekusi Kunci! (Kasir lain yang mau beli produk ini akan 'ngantre/loading' 
+                // sampai kasir ini selesai memotong stok)
+                $lockedProducts = Product::whereIn('id', $productIdsToLock)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('id');
+
+                // --- 3. VALIDASI STOK (Sekarang aman karena baris produk sudah dikunci) ---
+                foreach ($requiredStocks as $prodId => $totalNeeded) {
+                    $stockMov = DB::table('stock_movements')
+                        ->where('product_id', $prodId)
+                        ->where('outlet_id', $outletId)
+                        ->latest('created_at')
+                        ->first();
+                        
+                    $available = $stockMov ? (float)$stockMov->balance_after : 0;
+                    
+                    if ($totalNeeded > $available) {
+                        $prodName = $lockedProducts[$prodId]->name ?? 'Produk';
+                        // Jika stok kurang, batalkan transaksi, lepas gembok otomatis!
+                        DB::rollBack(); 
+                        return response()->json([
+                            'success' => false, 
+                            'message' => "Stok kurang! Dibutuhkan {$totalNeeded} pcs untuk {$prodName} (Sisa: {$available})."
+                        ], 400);
+                    }
+                }
+            }
+
+            // --- 4. JIKA STOK CUKUP, LANJUT BUAT TRANSAKSI ---
             $uniqueOrderId = 'POS-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
             $isMidtrans = in_array($paymentMethod, ['qris', 'ewallet']) && !empty($company->midtrans_server_key);
 
             $activeSession = PosSession::where('user_id', $user->id)->where('outlet_id', $outletId)->where('status', 'open')->first();
 
-            // --- 2. BUAT TRANSAKSI ---
             $transaction = Transaction::create([
                 'company_id'            => $tenantId,
                 'outlet_id'             => $outletId,
@@ -233,7 +258,6 @@ class PosController extends Controller
                     'subtotal'          => $item['price'] * $item['qty'],
                 ]);
 
-                // Jangan masukkan barang Rp 0 ke payload Midtrans
                 if (empty($item['is_reward'])) {
                     $itemDetails[] = [
                         'id' => (string) $item['id'],
@@ -244,7 +268,7 @@ class PosController extends Controller
                 }
             }
 
-            // --- REDEEM POINTS (LOCK POIN WALAU STATUS PENDING) ---
+            // --- REDEEM POINTS ---
             if ($manualPointsUsed > 0 && $transaction->customer_id) {
                 PointHistory::create([
                     'company_id' => $tenantId, 'customer_id' => $transaction->customer_id,
@@ -262,10 +286,10 @@ class PosController extends Controller
                 }
             }
 
-            // --- 3. EKSEKUSI PEMBAYARAN KAS / MANUAL ---
+            // --- 5. EKSEKUSI PEMBAYARAN KAS / MANUAL ---
             if (!$isMidtrans) {
                 $this->fulfillTransaction($transaction, $company);
-                DB::commit();
+                DB::commit(); // TRANSAKSI SELESAI, KUNCI (GEMBOK) STOK DILEPASKAN!
                 return response()->json([
                     'success' => true,
                     'is_midtrans' => false,
@@ -275,7 +299,7 @@ class PosController extends Controller
                 ]);
             }
 
-            // --- 4. EKSEKUSI JIKA MENGGUNAKAN MIDTRANS ---
+            // --- 6. EKSEKUSI JIKA MENGGUNAKAN MIDTRANS ---
             if ($isMidtrans) {
                 $totalDiscount = $request->input('discount', 0) + $request->input('point_discount_amount', 0);
                 if ($totalDiscount > 0) {
@@ -288,7 +312,7 @@ class PosController extends Controller
                 $transactionDetails = ['order_id' => $uniqueOrderId, 'gross_amount' => (int) preg_replace('/[^0-9]/', '', (string) round($grandTotal))];
                 $snapToken = MidtransService::createTransaction($company, $transactionDetails, $itemDetails);
                 
-                DB::commit();
+                DB::commit(); // TRANSAKSI SELESAI, KUNCI (GEMBOK) DILEPASKAN!
                 return response()->json([
                     'success' => true,
                     'is_midtrans' => true,
@@ -299,11 +323,10 @@ class PosController extends Controller
             }
 
         } catch (\Exception $e) {
-            DB::rollBack();
+            DB::rollBack(); // JIKA ADA ERROR SISTEM, BATALKAN SEMUA & LEPAS KUNCI
             return response()->json(['success' => false, 'message' => 'Gagal: ' . $e->getMessage()], 500);
         }
     }
-
 
     // =========================================================================
     // 3. FUNGSI FULFILL (JURNAL, STOK BUNDLE, ADMIN FEE, POIN)
@@ -408,14 +431,13 @@ class PosController extends Controller
     }
 
     // =========================================================================
-    // 4. AKSES APLIKASI & SUBSCRIPTION ROLE (Telah Diperbaiki / Anti-Error)
+    // 4. AKSES APLIKASI & SUBSCRIPTION ROLE
     // =========================================================================
     public function getAppAccess(Request $request)
     {
         $user = $request->user();
         $company = $user->company ?? $user->tenant ?? $user->outlet->company ?? null;
         
-        // --- 1. CARA PALING AMAN CEK OWNER (Anti-Error) ---
         $isOwner = false;
         if (method_exists($user, 'isOwner')) {
             $isOwner = $user->isOwner();
@@ -425,11 +447,9 @@ class PosController extends Controller
             $isOwner = true;
         }
 
-        // --- 2. EKSTRAK FITUR LANGGANAN DENGAN AMAN ---
         $activeFeatures = [];
         if ($company && $company->subscriptionPlan) {
             $featuresData = $company->subscriptionPlan->features ?? [];
-            
             if (is_string($featuresData)) {
                 $featuresData = json_decode($featuresData, true);
             }
@@ -452,7 +472,6 @@ class PosController extends Controller
         }
         $activeFeatures = array_values(array_unique($activeFeatures));
 
-        // --- 3. AMBIL PERMISSION USER ---
         $userPermissions = [];
         if ($isOwner) {
             $userPermissions = ['*']; 
@@ -475,8 +494,9 @@ class PosController extends Controller
             'user_permissions' => $userPermissions,
         ]);
     }
+
     // =========================================================================
-    // 5. UPDATE PENGATURAN LOYALTY (Khusus Owner/Admin)
+    // 5. UPDATE PENGATURAN LOYALTY
     // =========================================================================
     public function updateLoyaltySettings(Request $request)
     {
@@ -487,7 +507,6 @@ class PosController extends Controller
             return response()->json(['success' => false, 'message' => 'Tenant/Perusahaan tidak ditemukan.'], 404);
         }
 
-        // Cek Hak Akses (Opsional, pastikan hanya Owner/Admin yang bisa)
         $isOwner = false;
         if (method_exists($user, 'isOwner')) {
             $isOwner = $user->isOwner();
