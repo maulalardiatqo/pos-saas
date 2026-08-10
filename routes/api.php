@@ -104,4 +104,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('users', \App\Http\Controllers\Api\UserController::class);
     // reports
     Route::get('reports/finance', [\App\Http\Controllers\Api\FinanceReportController::class, 'index']);
+    Route::get('reports/sales', [\App\Http\Controllers\Api\SalesReportController::class, 'index']);
+    Route::get('reports/products', [\App\Http\Controllers\Api\ProductReportController::class, 'index']);
 });
