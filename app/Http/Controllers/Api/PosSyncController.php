@@ -235,7 +235,7 @@ class PosSyncController extends Controller
                         'company_id'        => $tenantId,
                         'transaction_id'    => $newTrx->id,
                         'product_id'        => $item['product_id'],
-                        'uom_id'            => $item['uom_id'] ?? null,
+                        'uom_id'            => !empty($item['uom_id']) ? $item['uom_id'] : ($product ? $product->base_uom_id : null),
                         'qty'               => $item['qty'],
                         'conversion_factor' => $item['conversion_factor'] ?? 1,
                         'base_qty'          => $item['qty'] * ($item['conversion_factor'] ?? 1),
