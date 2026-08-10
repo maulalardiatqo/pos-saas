@@ -175,23 +175,23 @@ class PosSyncController extends Controller
 
             foreach ($transactions as $trxData) {
                 // 1. CEK DUPLIKASI (Mencegah nota offline yang sama masuk 2x)
-                // Kita gunakan nomor nota lokal (OFF-...) sebagai referensi
-                $exists = Transaction::where('transaction_number', $trxData['transaction_number'])
+                $exists = \App\Models\Transaction::where('transaction_number', $trxData['transaction_number'])
                             ->where('company_id', $tenantId)
                             ->exists();
 
                 if ($exists) {
                     $syncedIds[] = $trxData['local_id'];
-                    continue; // Lewati jika sudah pernah masuk
+                    continue; 
                 }
 
-                $newTrx = Transaction::create([
+                // 2. BUAT HEADER TRANSAKSI
+                $newTrx = \App\Models\Transaction::create([
                     'company_id'            => $tenantId,
                     'outlet_id'             => $outletId,
                     'user_id'               => $user->id,
                     'customer_id'           => $trxData['customer_id'] ?? null,
                     'account_id'            => $trxData['account_id'] ?? null, 
-                    'transaction_number'    => $trxData['transaction_number'], 
+                    'transaction_number'    => $trxData['transaction_number'],
                     'type'                  => 'sale', 
                     'in_out'                => 'in', 
                     'status'                => 'completed', 
@@ -203,13 +203,13 @@ class PosSyncController extends Controller
                     'grand_total'           => $trxData['grand_total'] ?? 0,
                     'amount_paid'           => $trxData['amount_paid'] ?? 0,
                     'amount_change'         => $trxData['amount_change'] ?? 0,
-                    'created_at'            => $trxData['created_at'], // Pakai waktu dari HP (bukan waktu server sekarang)
+                    'created_at'            => $trxData['created_at'], 
                 ]);
 
-                // 3. PROSES ITEM & PESSIMISTIC LOCKING STOK
+                // 3. PROSES ITEM & AMBIL HARGA MODAL DARI TABEL PRODUCT
                 $items = $trxData['items'] ?? [];
                 
-                // Urutkan ID produk untuk mencegah Deadlock saat melock banyak barang
+                // Urutkan ID produk untuk mencegah Deadlock
                 $productIds = collect($items)->pluck('product_id')->sort()->unique()->toArray();
                 $lockedProducts = \App\Models\Product::whereIn('id', $productIds)
                                     ->lockForUpdate()
@@ -217,6 +217,12 @@ class PosSyncController extends Controller
                                     ->keyBy('id');
 
                 foreach ($items as $item) {
+                    $product = $lockedProducts[$item['product_id']] ?? null;
+                    
+                    // PERBAIKAN: Ambil cost_price dari server, kalikan dengan konversi satuan (jika ada)
+                    $costPrice = $product ? (float) $product->cost_price : 0;
+                    $totalCostPrice = $costPrice * ($item['conversion_factor'] ?? 1);
+
                     \App\Models\TransactionItem::create([
                         'company_id'        => $tenantId,
                         'transaction_id'    => $newTrx->id,
@@ -225,12 +231,12 @@ class PosSyncController extends Controller
                         'qty'               => $item['qty'],
                         'conversion_factor' => $item['conversion_factor'] ?? 1,
                         'base_qty'          => $item['qty'] * ($item['conversion_factor'] ?? 1),
-                        'selling_price'     => $item['price'],
+                        'cost_price'        => $totalCostPrice, // <-- INI YANG TADI MENGHILANG
+                        'selling_price'     => $item['price'] ?? ($product ? $product->base_price : 0),
                         'subtotal'          => $item['subtotal'],
                     ]);
 
                     // Potong stok (kecuali Jasa)
-                    $product = $lockedProducts[$item['product_id']] ?? null;
                     if ($product && $product->item_type !== 'service') {
                         $baseQty = $item['qty'] * ($item['conversion_factor'] ?? 1);
                         
@@ -252,7 +258,7 @@ class PosSyncController extends Controller
                             'balance_before' => $balanceBefore,
                             'balance_after'  => $balanceBefore - $baseQty,
                             'remarks'        => 'Sinkronisasi POS Offline: ' . $newTrx->transaction_number,
-                            'created_at'     => $newTrx->created_at, // Samakan dengan waktu transaksi
+                            'created_at'     => $newTrx->created_at, 
                         ]);
                     }
                 }
@@ -270,7 +276,7 @@ class PosSyncController extends Controller
                     ]);
                 }
 
-                // Tambahkan uang ke Saldo Akun (Kas/Bank)
+                // 5. Tambahkan uang ke Saldo Akun (Kas/Bank)
                 if ($newTrx->account_id) {
                     \App\Models\Account::where('id', $newTrx->account_id)->increment('balance', $newTrx->grand_total);
                 }
