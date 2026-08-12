@@ -98,9 +98,11 @@ class ProductForm
                                 ->relationship('baseUom', 'name')
                                 ->required()
                                 ->searchable()
-                                ->preload(),
+                                ->preload()
+                                ->disabled(fn (string $operation) => $operation === 'edit')
+                                ->dehydrated() 
+                                ->helperText('Pilih satuan paling KECIL (cth: Pcs, Gram).'),
 
-                            // PERBAIKAN 1: Tambahkan live(onBlur) agar nilainya langsung terbaca sistem
                             TextInput::make('cost_price')
                                 ->label('Harga Modal (HPP)')
                                 ->prefix('Rp')
@@ -155,13 +157,16 @@ class ProductForm
                                         ->disableOptionsWhenSelectedInSiblingRepeaterItems(),
 
                                     TextInput::make('conversion_factor')
-                                        ->label('Isi per Satuan')
+                                        ->label('Isi per Satuan Dasar')
                                         ->numeric()
                                         ->required()
                                         ->default(1)
+                                        ->rules(['gt:1']) 
+                                        ->validationMessages([
+                                            'gt' => 'Isi konversi harus LEBIH BESAR DARI 1. (Karena Satuan Dasar adalah yang terkecil)',
+                                        ])
+                                        ->helperText('Contoh: Jika 1 Dus = 12 Pcs, isi 12.')
                                         ->live(onBlur: true),
-
-                                    // PERBAIKAN 3: Validasi Cerdas untuk Multi Satuan
                                     TextInput::make('selling_price')
                                         ->label('Harga Jual')
                                         ->prefix('Rp')
