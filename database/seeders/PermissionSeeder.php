@@ -46,7 +46,6 @@ class PermissionSeeder extends Seeder
             ['module' => 'products', 'code' => 'products.delete', 'name' => 'Hapus Produk'],
             ['module' => 'products', 'code' => 'products.category', 'name' => 'Kelola Kategori'],
             ['module' => 'products', 'code' => 'products.brand', 'name' => 'Kelola Brand'],
-            // ['module' => 'products', 'code' => 'products.variant', 'name' => 'Kelola Varian'],
             ['module' => 'products', 'code' => 'products.bundle', 'name' => 'Kelola Produk Bundle'],
             ['module' => 'products', 'code' => 'products.recipe', 'name' => 'Kelola Resep (BOM)'],
             ['module' => 'products', 'code' => 'products.barcode', 'name' => 'Kelola Barcode'],
@@ -67,80 +66,46 @@ class PermissionSeeder extends Seeder
             // MODULE: INVENTORY
             // ---------------------------------------------------------
             ['module' => 'inventory', 'code' => 'inventory.adjustment', 'name' => 'Stock Adjustment'],
-            ['module' => 'inventory', 'code' => 'inventory.transfer', 'name' => 'Stock Transfer'],
-            ['module' => 'inventory', 'code' => 'inventory.opname', 'name' => 'Stock Opname'],
-            ['module' => 'inventory', 'code' => 'inventory.history', 'name' => 'Lihat Riwayat Stok'],
-            // ['module' => 'inventory', 'code' => 'inventory.stock_card', 'name' => 'Lihat Kartu Stok'],
-            // ['module' => 'inventory', 'code' => 'inventory.warehouse', 'name' => 'Kelola Multi Gudang'],
-            // ['module' => 'inventory', 'code' => 'inventory.batch', 'name' => 'Kelola Batch Number'],
-            // ['module' => 'inventory', 'code' => 'inventory.expiry', 'name' => 'Kelola Expiry Date'],
-            // ['module' => 'inventory', 'code' => 'inventory.serial', 'name' => 'Kelola Serial Number'],
-            // ['module' => 'inventory', 'code' => 'inventory.reorder', 'name' => 'Kelola Reorder Level'],
+            ['module' => 'inventory', 'code' => 'inventory.transfer', 'name' => 'Stock Transfer (Mutasi)'],
+            ['module' => 'inventory', 'code' => 'inventory.history', 'name' => 'Lihat Riwayat & Saldo Stok'],
 
             // ---------------------------------------------------------
             // MODULE: FINANCE
             // ---------------------------------------------------------
-            // ['module' => 'finance', 'code' => 'finance.cash_in', 'name' => 'Catat Kas Masuk (Cash In)'],
-            // ['module' => 'finance', 'code' => 'finance.cash_out', 'name' => 'Catat Kas Keluar (Cash Out)'],
-            ['module' => 'finance', 'code' => 'finance.expense', 'name' => 'Catat Biaya/Pengeluaran'],
-            ['module' => 'finance', 'code' => 'finance.revenue', 'name' => 'Catat Pendapatan Lain'],
-            // ['module' => 'finance', 'code' => 'finance.closing_shift', 'name' => 'Tutup Shift'],
-            // ['module' => 'finance', 'code' => 'finance.closing_day', 'name' => 'Tutup Hari'],
-            // ['module' => 'finance', 'code' => 'finance.bank', 'name' => 'Kelola Akun Bank'],
-            // ['module' => 'finance', 'code' => 'finance.payment_method', 'name' => 'Kelola Metode Pembayaran'],
-            // ['module' => 'finance', 'code' => 'finance.tax', 'name' => 'Kelola Pajak'],
-            // ['module' => 'finance', 'code' => 'finance.journal', 'name' => 'Lihat Jurnal Akuntansi'],
+            // Kasir Shift & Rekening adalah bagian dari Finance di sistem kita
+            ['module' => 'finance', 'code' => 'finance.closing_shift', 'name' => 'Buka/Tutup Shift Kasir (Session)'],
+            ['module' => 'finance', 'code' => 'finance.account', 'name' => 'Kelola Rekening / Akun Pembayaran'],
 
             // ---------------------------------------------------------
             // MODULE: PURCHASE
             // ---------------------------------------------------------
-            ['module' => 'purchase', 'code' => 'purchase.po', 'name' => 'Buat Purchase Order (PO)'],
-            ['module' => 'purchase', 'code' => 'purchase.goods_receive', 'name' => 'Terima Barang (Goods Receive)'],
-            ['module' => 'purchase', 'code' => 'purchase.return_supplier', 'name' => 'Retur ke Supplier'],
-            ['module' => 'purchase', 'code' => 'purchase.request', 'name' => 'Buat Purchase Request'],
-            ['module' => 'purchase', 'code' => 'purchase.invoice', 'name' => 'Kelola Supplier Invoice'],
+            // Sistem kita memproses masuknya barang langsung via status Completed di PO
+            ['module' => 'purchase', 'code' => 'purchase.po', 'name' => 'Kelola Purchase Order (PO)'],
 
             // ---------------------------------------------------------
             // MODULE: CRM
             // ---------------------------------------------------------
             ['module' => 'crm', 'code' => 'crm.member', 'name' => 'Kelola Membership'],
             ['module' => 'crm', 'code' => 'crm.point', 'name' => 'Kelola Poin Pelanggan'],
-            ['module' => 'crm', 'code' => 'crm.loyalty', 'name' => 'Kelola Program Loyalty'],
+            ['module' => 'crm', 'code' => 'crm.loyalty', 'name' => 'Kelola Program Loyalty & Reward'],
             ['module' => 'crm', 'code' => 'crm.voucher', 'name' => 'Kelola Voucher'],
-            ['module' => 'crm', 'code' => 'crm.gift_card', 'name' => 'Kelola Gift Card'],
-            ['module' => 'crm', 'code' => 'crm.coupon', 'name' => 'Kelola Kupon Diskon'],
 
-            // ---------------------------------------------------------
-            // MODULE: PROMOTIONS & KITCHEN (NEW)
-            // ---------------------------------------------------------
-            ['module' => 'promotions', 'code' => 'promotions.manage', 'name' => 'Kelola Promo & Diskon'],
-            ['module' => 'kitchen', 'code' => 'kitchen.view', 'name' => 'Lihat Kitchen Display (KDS)'],
-            
             // ---------------------------------------------------------
             // MODULE: REPORTS
             // ---------------------------------------------------------
-            ['module' => 'reports', 'code' => 'reports.sales', 'name' => 'Laporan Penjualan'],
-            // ['module' => 'reports', 'code' => 'reports.inventory', 'name' => 'Laporan Inventori'],
-            ['module' => 'reports', 'code' => 'reports.finance', 'name' => 'Laporan Keuangan'],
-            // ['module' => 'reports', 'code' => 'reports.purchase', 'name' => 'Laporan Pembelian'],
-            // ['module' => 'reports', 'code' => 'reports.customer', 'name' => 'Laporan Pelanggan'],
-            ['module' => 'reports', 'code' => 'reports.product', 'name' => 'Laporan Produk'],
-
-            // ---------------------------------------------------------
-            // MODULE: ADVANCED & INTEGRATIONS
-            // ---------------------------------------------------------
-            ['module' => 'advanced', 'code' => 'advanced.audit_log', 'name' => 'Lihat Audit Log'],
-            ['module' => 'advanced', 'code' => 'advanced.approval', 'name' => 'Kelola Approval Workflow'],
-            ['module' => 'integrations', 'code' => 'integrations.manage', 'name' => 'Kelola Integrasi (API, WA, dll)'],
+            ['module' => 'reports', 'code' => 'reports.sales', 'name' => 'Laporan Penjualan (Dashboard)'],
+            ['module' => 'reports', 'code' => 'reports.product', 'name' => 'Laporan Analisis Produk'],
 
             // ---------------------------------------------------------
             // MODULE: SETTINGS
             // ---------------------------------------------------------
-            ['module' => 'settings', 'code' => 'settings.company', 'name' => 'Ubah Profil Toko'],
+            ['module' => 'settings', 'code' => 'settings.company', 'name' => 'Ubah Profil Toko & Seting Midtrans'],
             ['module' => 'settings', 'code' => 'settings.roles', 'name' => 'Kelola Hak Akses & Jabatan'],
-            ['module' => 'settings', 'code' => 'settings.devices', 'name' => 'Kelola Perangkat/Printer'],
         ];
 
+        // Kosongkan tabel permission lama sebelum membuat ulang agar rapi
+        // (Hati-hati jika data RolePermission sudah terhubung, pastikan melakukan seeder ulang Role juga)
+        
         foreach ($permissions as $perm) {
             Permission::firstOrCreate(
                 ['code' => $perm['code']], 
