@@ -17,6 +17,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Repeater;
 use Filament\Support\RawJs;
+use Filament\Schemas\Components\Utilities\Get;
 
 // WAJIB DI-IMPORT UNTUK POP-UP VALIDASI
 use Filament\Notifications\Notification;
@@ -149,8 +150,17 @@ class ProductForm
                             ->schema([
                                 Grid::make(2)->schema([
                                     Select::make('uom_id')
-                                        ->label('Satuan')
-                                        ->relationship('uom', 'name')
+                                        ->label('Satuan Khusus')
+                                        ->relationship(
+                                            name: 'uom', 
+                                            titleAttribute: 'name',
+                                            modifyQueryUsing: function (\Illuminate\Database\Eloquent\Builder $query, Get $get) {
+                                                $baseUom = $get('../../base_uom_id');
+                                                if ($baseUom) {
+                                                    $query->where('id', '!=', $baseUom);
+                                                }
+                                            }
+                                        )
                                         ->required()
                                         ->searchable()
                                         ->preload()
