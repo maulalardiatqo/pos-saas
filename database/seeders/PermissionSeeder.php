@@ -46,7 +46,7 @@ class PermissionSeeder extends Seeder
             ['module' => 'products', 'code' => 'products.delete', 'name' => 'Hapus Produk'],
             ['module' => 'products', 'code' => 'products.category', 'name' => 'Kelola Kategori'],
             ['module' => 'products', 'code' => 'products.brand', 'name' => 'Kelola Brand'],
-            ['module' => 'products', 'code' => 'products.variant', 'name' => 'Kelola Varian'],
+            // ['module' => 'products', 'code' => 'products.variant', 'name' => 'Kelola Varian'],
             ['module' => 'products', 'code' => 'products.bundle', 'name' => 'Kelola Produk Bundle'],
             ['module' => 'products', 'code' => 'products.recipe', 'name' => 'Kelola Resep (BOM)'],
             ['module' => 'products', 'code' => 'products.barcode', 'name' => 'Kelola Barcode'],
@@ -70,26 +70,26 @@ class PermissionSeeder extends Seeder
             ['module' => 'inventory', 'code' => 'inventory.transfer', 'name' => 'Stock Transfer'],
             ['module' => 'inventory', 'code' => 'inventory.opname', 'name' => 'Stock Opname'],
             ['module' => 'inventory', 'code' => 'inventory.history', 'name' => 'Lihat Riwayat Stok'],
-            ['module' => 'inventory', 'code' => 'inventory.stock_card', 'name' => 'Lihat Kartu Stok'],
-            ['module' => 'inventory', 'code' => 'inventory.warehouse', 'name' => 'Kelola Multi Gudang'],
-            ['module' => 'inventory', 'code' => 'inventory.batch', 'name' => 'Kelola Batch Number'],
-            ['module' => 'inventory', 'code' => 'inventory.expiry', 'name' => 'Kelola Expiry Date'],
-            ['module' => 'inventory', 'code' => 'inventory.serial', 'name' => 'Kelola Serial Number'],
-            ['module' => 'inventory', 'code' => 'inventory.reorder', 'name' => 'Kelola Reorder Level'],
+            // ['module' => 'inventory', 'code' => 'inventory.stock_card', 'name' => 'Lihat Kartu Stok'],
+            // ['module' => 'inventory', 'code' => 'inventory.warehouse', 'name' => 'Kelola Multi Gudang'],
+            // ['module' => 'inventory', 'code' => 'inventory.batch', 'name' => 'Kelola Batch Number'],
+            // ['module' => 'inventory', 'code' => 'inventory.expiry', 'name' => 'Kelola Expiry Date'],
+            // ['module' => 'inventory', 'code' => 'inventory.serial', 'name' => 'Kelola Serial Number'],
+            // ['module' => 'inventory', 'code' => 'inventory.reorder', 'name' => 'Kelola Reorder Level'],
 
             // ---------------------------------------------------------
             // MODULE: FINANCE
             // ---------------------------------------------------------
-            ['module' => 'finance', 'code' => 'finance.cash_in', 'name' => 'Catat Kas Masuk (Cash In)'],
-            ['module' => 'finance', 'code' => 'finance.cash_out', 'name' => 'Catat Kas Keluar (Cash Out)'],
+            // ['module' => 'finance', 'code' => 'finance.cash_in', 'name' => 'Catat Kas Masuk (Cash In)'],
+            // ['module' => 'finance', 'code' => 'finance.cash_out', 'name' => 'Catat Kas Keluar (Cash Out)'],
             ['module' => 'finance', 'code' => 'finance.expense', 'name' => 'Catat Biaya/Pengeluaran'],
             ['module' => 'finance', 'code' => 'finance.revenue', 'name' => 'Catat Pendapatan Lain'],
-            ['module' => 'finance', 'code' => 'finance.closing_shift', 'name' => 'Tutup Shift'],
-            ['module' => 'finance', 'code' => 'finance.closing_day', 'name' => 'Tutup Hari'],
-            ['module' => 'finance', 'code' => 'finance.bank', 'name' => 'Kelola Akun Bank'],
-            ['module' => 'finance', 'code' => 'finance.payment_method', 'name' => 'Kelola Metode Pembayaran'],
-            ['module' => 'finance', 'code' => 'finance.tax', 'name' => 'Kelola Pajak'],
-            ['module' => 'finance', 'code' => 'finance.journal', 'name' => 'Lihat Jurnal Akuntansi'],
+            // ['module' => 'finance', 'code' => 'finance.closing_shift', 'name' => 'Tutup Shift'],
+            // ['module' => 'finance', 'code' => 'finance.closing_day', 'name' => 'Tutup Hari'],
+            // ['module' => 'finance', 'code' => 'finance.bank', 'name' => 'Kelola Akun Bank'],
+            // ['module' => 'finance', 'code' => 'finance.payment_method', 'name' => 'Kelola Metode Pembayaran'],
+            // ['module' => 'finance', 'code' => 'finance.tax', 'name' => 'Kelola Pajak'],
+            // ['module' => 'finance', 'code' => 'finance.journal', 'name' => 'Lihat Jurnal Akuntansi'],
 
             // ---------------------------------------------------------
             // MODULE: PURCHASE
@@ -120,10 +120,10 @@ class PermissionSeeder extends Seeder
             // MODULE: REPORTS
             // ---------------------------------------------------------
             ['module' => 'reports', 'code' => 'reports.sales', 'name' => 'Laporan Penjualan'],
-            ['module' => 'reports', 'code' => 'reports.inventory', 'name' => 'Laporan Inventori'],
+            // ['module' => 'reports', 'code' => 'reports.inventory', 'name' => 'Laporan Inventori'],
             ['module' => 'reports', 'code' => 'reports.finance', 'name' => 'Laporan Keuangan'],
-            ['module' => 'reports', 'code' => 'reports.purchase', 'name' => 'Laporan Pembelian'],
-            ['module' => 'reports', 'code' => 'reports.customer', 'name' => 'Laporan Pelanggan'],
+            // ['module' => 'reports', 'code' => 'reports.purchase', 'name' => 'Laporan Pembelian'],
+            // ['module' => 'reports', 'code' => 'reports.customer', 'name' => 'Laporan Pelanggan'],
             ['module' => 'reports', 'code' => 'reports.product', 'name' => 'Laporan Produk'],
 
             // ---------------------------------------------------------
