@@ -19,6 +19,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Database\Eloquent\Model; // <-- Ditambahkan untuk Type-Hinting Hak Akses
 use Filament\Actions\ViewAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\DeleteBulkAction;
@@ -33,6 +34,38 @@ class AssetResource extends Resource
     protected static ?string $navigationLabel = 'Manajemen Aset';
     protected static string | \UnitEnum | null $navigationGroup = 'Inventaris';
 
+    /*
+    |--------------------------------------------------------------------------
+    | Hak Akses (Role-Based Access Control)
+    |--------------------------------------------------------------------------
+    */
+    public static function canViewAny(): bool
+    {
+        $user = auth()->user();
+        // Hanya muncul untuk Owner, atau karyawan yang punya hak akses 'inventory.asset'
+        return $user && ($user->isOwner() || $user->hasPermission('inventory.asset'));
+    }
+
+    public static function canCreate(): bool
+    {
+        return static::canViewAny();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return static::canViewAny();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return static::canViewAny();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Konfigurasi Form & Tabel
+    |--------------------------------------------------------------------------
+    */
     public static function form(Schema $schema): Schema
     {
         return $schema
@@ -221,7 +254,6 @@ class AssetResource extends Resource
             ]);
     }
 
-   
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery();

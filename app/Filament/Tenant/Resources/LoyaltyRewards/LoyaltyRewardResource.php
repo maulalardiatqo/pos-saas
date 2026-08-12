@@ -20,6 +20,7 @@ use Filament\Tables\Columns\ToggleColumn;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\RawJs;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model; 
 
 use Filament\Actions\EditAction;
 use Filament\Actions\DeleteAction;
@@ -29,6 +30,7 @@ use Filament\Actions\BulkActionGroup;
 use App\Filament\Tenant\Resources\LoyaltyRewards\Pages\ListLoyaltyRewards;
 use App\Filament\Tenant\Resources\LoyaltyRewards\Pages\CreateLoyaltyReward;
 use App\Filament\Tenant\Resources\LoyaltyRewards\Pages\EditLoyaltyReward;
+
 class LoyaltyRewardResource extends Resource
 {
     protected static ?string $model = LoyaltyReward::class;
@@ -39,18 +41,44 @@ class LoyaltyRewardResource extends Resource
     protected static ?string $navigationLabel = 'Katalog Hadiah';
     protected static ?string $pluralLabel = 'Katalog Hadiah (Reward)';
 
-    // Validasi Izin Akses (Proteksi Modul)
+    /*
+    |--------------------------------------------------------------------------
+    | Validasi Izin Akses (Role-Based Access Control & Plan Subscription)
+    |--------------------------------------------------------------------------
+    */
     public static function canViewAny(): bool
     {
         $tenant = Filament::getTenant();
+        // Cek Gembok Paket: Apakah Tenant ini berlangganan fitur CRM/Poin?
         if (!$tenant || !$tenant->hasFeature('crm.point')) {
             return false;
         }
 
         $user = auth()->user();
-        return $user && ($user->isOwner() || $user->isPlatform());
+        // Hanya Owner atau karyawan yang punya hak akses 'crm.loyalty' yang bisa melihat
+        return $user && ($user->isOwner() || $user->hasPermission('crm.loyalty'));
     }
 
+    public static function canCreate(): bool
+    {
+        return static::canViewAny();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return static::canViewAny();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return static::canViewAny();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Konfigurasi Form & Tabel
+    |--------------------------------------------------------------------------
+    */
     public static function form(Schema $schema): Schema
     {
         return $schema

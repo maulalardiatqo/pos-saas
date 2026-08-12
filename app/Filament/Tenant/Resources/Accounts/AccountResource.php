@@ -8,6 +8,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model; // <-- Tambahan untuk type-hinting hak akses
 use BackedEnum;
 
 use Filament\Schemas\Schema;
@@ -34,6 +35,42 @@ class AccountResource extends Resource
     
     protected static string | \UnitEnum | null $navigationGroup = 'Master Data';
     protected static ?int $navigationSort = 1;
+
+    /*
+    |--------------------------------------------------------------------------
+    | Hak Akses (Role-Based Access Control)
+    |--------------------------------------------------------------------------
+    | Mengatur agar menu ini hanya muncul dan bisa diakses oleh Owner, 
+    | atau jabatan yang secara eksplisit diberi centang "Kelola Rekening"
+    */
+
+    public static function canViewAny(): bool
+    {
+        $user = auth()->user();
+        // Hanya muncul untuk Owner, atau karyawan yang punya hak akses 'finance.account'
+        return $user->isOwner() || $user->hasPermission('finance.account');
+    }
+
+    public static function canCreate(): bool
+    {
+        return static::canViewAny();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return static::canViewAny();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return static::canViewAny();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Konfigurasi Form & Tabel
+    |--------------------------------------------------------------------------
+    */
 
     public static function form(Schema $schema): Schema
     {

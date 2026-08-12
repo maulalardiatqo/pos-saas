@@ -26,59 +26,42 @@ class RoleForm
             $module = $permission->module;
             $code = $permission->code;
 
-            // --- LANGKAH 1: Validasi Saklar Utama Modul (Master Switch) ---
-            // Petakan nama modul seeder ke switch induk di json "modules"
-            $mainModuleKey = match($module) {
-                'roles'       => 'users',
-                'outlets'     => 'settings',
-                default       => $module
-            };
-
-            // Jika saklar utama di JSON bernilai false, potong jalur (sembunyikan seluruh modul)
-            if (data_get($features, "modules.{$mainModuleKey}") !== true) {
-                return false;
+            // --- FILTER: MODUL INTI (SELALU MUNCUL) ---
+            $coreModules = ['users', 'roles', 'outlets', 'sales', 'customers', 'suppliers', 'settings', 'reports', 'finance'];
+            if (in_array($module, $coreModules)) {
+                return true;
             }
 
-            // --- LANGKAH 2: Validasi Fitur Granular / Sub-Modul ---
-            // Cek apakah permission ini memiliki aturan spesifik di dalam objek JSON
-            
-            // Sub-fitur Produk
-            if (str_starts_with($code, 'products.') && ! in_array($code, ['products.view', 'products.create', 'products.edit', 'products.delete'])) {
+            // --- FILTER: MODUL PRODUK ---
+            if ($module === 'products') {
+                // Fitur dasar produk selalu muncul
+                $coreProductFeatures = ['products.view', 'products.create', 'products.edit', 'products.delete', 'products.category', 'products.brand', 'products.multi_uom', 'products.barcode'];
+                if (in_array($code, $coreProductFeatures)) {
+                    return true;
+                }
+                
+                // Fitur tambahan (bundle, recipe) dicek dari langganan. Default true jika tidak diatur.
                 $subKey = str_replace('products.', '', $code); 
-                return data_get($features, "products.{$subKey}") === true;
+                return data_get($features, "products.{$subKey}", true) === true;
             }
 
-            // Sub-fitur Inventori
-            if (str_starts_with($code, 'inventory.')) {
+            // --- FILTER: MODUL INVENTORY ---
+            if ($module === 'inventory') {
+                // Fitur history, transfer, adjusment, dan asset
                 $subKey = str_replace('inventory.', '', $code);
-                return data_get($features, "inventory.{$subKey}") === true;
+                return data_get($features, "inventory.{$subKey}", true) === true;
             }
 
-            // Sub-fitur Keuangan
-            if (str_starts_with($code, 'finance.')) {
-                $subKey = str_replace('finance.', '', $code);
-                return data_get($features, "finance.{$subKey}") === true;
+            // --- FILTER: MODUL PEMBELIAN (PURCHASE) ---
+            if ($module === 'purchase') {
+                return data_get($features, 'modules.purchase', true) === true;
             }
 
-            // Sub-fitur Pembelian
-            if (str_starts_with($code, 'purchase.')) {
-                $subKey = str_replace('purchase.', '', $code);
-                return data_get($features, "purchase.{$subKey}") === true;
+            // --- FILTER: MODUL CRM ---
+            if ($module === 'crm') {
+                return data_get($features, 'modules.crm', true) === true;
             }
 
-            // Sub-fitur CRM
-            if (str_starts_with($code, 'crm.')) {
-                $subKey = str_replace('crm.', '', $code);
-                return data_get($features, "crm.{$subKey}") === true;
-            }
-
-            // Sub-fitur Laporan (Reports)
-            if (str_starts_with($code, 'reports.')) {
-                $subKey = str_replace('reports.', '', $code);
-                return data_get($features, "reports.{$subKey}") === true;
-            }
-
-            // Jika lolos semua pemeriksaan di atas (fitur core bawaan modul yang aktif), maka tampilkan
             return true;
         });
 
@@ -105,7 +88,8 @@ class RoleForm
                 ->schema($checkboxes)
                 ->columns(4); 
         }
-       $permissionComponents[] = Hidden::make('permissions_sync')
+
+        $permissionComponents[] = Hidden::make('permissions_sync')
             ->dehydrated(false) 
             ->saveRelationshipsUsing(function (Model $record, $livewire) { 
                 $formState = $livewire->form->getRawState();
@@ -122,7 +106,7 @@ class RoleForm
                 $record->permissions()->sync($checkedIds);
             });
             
-        // 6. Render Form
+        // 5. Render Form
         return $schema
             ->components([
                 Section::make('Informasi Jabatan')

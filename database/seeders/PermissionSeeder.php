@@ -68,6 +68,7 @@ class PermissionSeeder extends Seeder
             ['module' => 'inventory', 'code' => 'inventory.adjustment', 'name' => 'Stock Adjustment'],
             ['module' => 'inventory', 'code' => 'inventory.transfer', 'name' => 'Stock Transfer (Mutasi)'],
             ['module' => 'inventory', 'code' => 'inventory.history', 'name' => 'Lihat Riwayat & Saldo Stok'],
+            ['module' => 'inventory', 'code' => 'inventory.asset', 'name' => 'Kelola Aset Toko'],
 
             // ---------------------------------------------------------
             // MODULE: FINANCE
@@ -89,12 +90,14 @@ class PermissionSeeder extends Seeder
             ['module' => 'crm', 'code' => 'crm.point', 'name' => 'Kelola Poin Pelanggan'],
             ['module' => 'crm', 'code' => 'crm.loyalty', 'name' => 'Kelola Program Loyalty & Reward'],
             ['module' => 'crm', 'code' => 'crm.voucher', 'name' => 'Kelola Voucher'],
+            ['module' => 'crm', 'code' => 'crm.gift_card', 'name' => 'Kelola Voucher'],
 
             // ---------------------------------------------------------
             // MODULE: REPORTS
             // ---------------------------------------------------------
-            ['module' => 'reports', 'code' => 'reports.sales', 'name' => 'Laporan Penjualan (Dashboard)'],
+            ['module' => 'reports', 'code' => 'reports.sales', 'name' => 'Laporan Penjualan'],
             ['module' => 'reports', 'code' => 'reports.product', 'name' => 'Laporan Analisis Produk'],
+            ['module' => 'reports', 'code' => 'reports.finance', 'name' => 'Laporan Keuangan'],
 
             // ---------------------------------------------------------
             // MODULE: SETTINGS

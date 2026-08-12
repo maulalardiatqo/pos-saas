@@ -12,6 +12,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Support\Enums\Alignment;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model; // <-- Tambahan untuk type-hinting canEdit & canDelete
 use App\Filament\Exports\TransactionExporter;
 use Filament\Actions\ExportAction;
 
@@ -27,6 +28,39 @@ class FinanceReportResource extends Resource
     protected static ?string $navigationLabel = 'Lap. Keuangan';
     protected static string | \UnitEnum | null $navigationGroup = 'Laporan (Reports)';
     protected static ?int $navigationSort = 1;
+
+    /*
+    |--------------------------------------------------------------------------
+    | Hak Akses (Role-Based Access Control)
+    |--------------------------------------------------------------------------
+    */
+
+    public static function canViewAny(): bool
+    {
+        $user = auth()->user();
+        return $user->isOwner() || $user->hasPermission('reports.finance');
+    }
+
+    public static function canCreate(): bool
+    {
+        return false; // Laporan tidak bisa dibuat manual dari sini
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return false; // Laporan keuangan absolut, tidak boleh diedit dari menu laporan
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return false; // Laporan tidak boleh dihapus dari sini (harus via void di menu asalnya)
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Konfigurasi Form & Tabel
+    |--------------------------------------------------------------------------
+    */
 
     public static function form(Schema $schema): Schema
     {
@@ -147,11 +181,6 @@ class FinanceReportResource extends Resource
         return [
             'index' => Pages\ListFinanceReports::route('/'),
         ];
-    }
-
-    public static function canCreate(): bool
-    {
-        return false;
     }
 
     public static function getWidgets(): array

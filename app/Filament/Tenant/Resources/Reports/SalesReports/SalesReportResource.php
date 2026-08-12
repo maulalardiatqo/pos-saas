@@ -29,10 +29,30 @@ class SalesReportResource extends Resource
     protected static string | \UnitEnum | null $navigationGroup = 'Laporan (Reports)';
     protected static ?int $navigationSort = 1;
 
-    // 3. KUNCI HAK AKSES (READ-ONLY)
+    /*
+    |--------------------------------------------------------------------------
+    | Hak Akses (Role-Based Access Control)
+    |--------------------------------------------------------------------------
+    */
+
+    public static function canViewAny(): bool
+    {
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+        // Hanya muncul untuk Owner, atau karyawan yang punya hak akses 'reports.sales'
+        return $user->isOwner() || $user->hasPermission('reports.sales');
+    }
+
+    // KUNCI HAK AKSES (MURNI READ-ONLY)
     public static function canCreate(): bool { return false; }
     public static function canEdit(Model $record): bool { return false; }
     public static function canDelete(Model $record): bool { return false; }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Konfigurasi Form & Tabel
+    |--------------------------------------------------------------------------
+    */
 
     public static function form(Schema $schema): Schema
     {
