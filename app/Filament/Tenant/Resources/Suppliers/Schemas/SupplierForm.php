@@ -10,7 +10,6 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Select; 
-use Filament\Forms\Components\Hidden; 
 
 class SupplierForm
 {
@@ -31,7 +30,6 @@ class SupplierForm
                                         ->label('Kode Pemasok')
                                         ->required()
                                         ->maxLength(50)
-                                        // Validasi Unik khusus per Company
                                         ->unique(ignoreRecord: true, modifyRuleUsing: function ($rule) {
                                             return $rule->where('company_id', Filament::getTenant()->id);
                                         })
@@ -43,19 +41,16 @@ class SupplierForm
                                         ->maxLength(150)
                                         ->placeholder('Contoh: PT. ABC Indonesia'),
                                         
-                                    // INPUT OUTLET (Tampil untuk Owner, tersembunyi untuk staf)
+                                    // SATU INPUT OUTLET UNTUK SEMUA (Dengan logika Disabled & Dehydrated)
                                     Select::make('outlet_id')
                                         ->label('Lokasi Outlet / Cabang')
                                         ->relationship('outlet', 'name')
                                         ->helperText('Kosongkan jika supplier ini menyuplai barang ke semua cabang (Global).')
                                         ->searchable()
                                         ->preload()
-                                        ->visible($isOwnerOrPlatform),
-
-                                    // INPUT HIDDEN OUTLET (Otomatis terisi jika yang login adalah staf)
-                                    Hidden::make('outlet_id')
-                                        ->default(fn () => !$isOwnerOrPlatform ? $user->outlet_id : null)
-                                        ->visible(!$isOwnerOrPlatform),
+                                        ->default(fn () => $user?->outlet_id)
+                                        ->disabled(!$isOwnerOrPlatform) // Karyawan biasa tidak bisa mengubah isinya
+                                        ->dehydrated(), // Memaksa Filament untuk tetap menyimpan nilainya ke database meskipun disabled
                                 ]),
 
                                 Textarea::make('address')
