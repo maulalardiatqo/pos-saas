@@ -10,6 +10,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Grid;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\TextInput;
+use Filament\Facades\Filament;
 use Filament\Support\RawJs;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Notifications\Notification;
@@ -32,18 +33,25 @@ class ManagePointSettings extends Page implements HasForms
         return 'Pengaturan Poin Pelanggan';
     }
 
-    // --- 1. CEK FITUR UNTUK SIDEBAR NAVIGATION ---
-    public static function shouldRegisterNavigation(): bool
+   public static function shouldRegisterNavigation(): bool
     {
-        /** @var \App\Models\Company $company */
-        $company = filament()->getTenant();
-        
-        if (!$company) {
+        return static::canAccess();
+    }
+
+    // 2. CEK OTORISASI HALAMAN (GEMBOK PAKET + HAK AKSES USER)
+    public static function canAccess(): bool
+    {
+        $tenant = Filament::getTenant();
+
+        // Cek Gembok Paket: Apakah Tenant ini berlangganan fitur CRM/Poin?
+        if (!$tenant || !$tenant->hasFeature('crm.point')) {
             return false;
         }
 
-        // Asumsi struktur JSON Anda ada di modul 'crm' dengan key 'point'
-        return $company->hasFeature('crm.point'); 
+        $user = auth()->user();
+
+        // Hanya Owner, Platform Admin, atau karyawan yang punya hak akses 'crm.point' yang bisa mengakses
+        return $user && ($user->isOwner() || $user->isPlatform() || $user->hasPermission('crm.point'));
     }
 
     public function mount(): void
