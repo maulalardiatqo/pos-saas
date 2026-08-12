@@ -130,9 +130,9 @@ class TransactionResource extends Resource
                     })
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()->label('Detail'),
+                ViewAction::make()->label('Detail'),
                 
-                Tables\Actions\Action::make('void')
+                Action::make('void')
                     ->label('Void')
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
