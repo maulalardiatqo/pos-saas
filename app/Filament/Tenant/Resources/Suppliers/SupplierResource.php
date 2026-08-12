@@ -12,6 +12,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder; 
 
 class SupplierResource extends Resource
 {
@@ -52,6 +53,30 @@ class SupplierResource extends Resource
     public static function canDelete(Model $record): bool
     {
         return auth()->user()->hasPermission('suppliers.manage');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Filter Data (Multi-Outlet)
+    |--------------------------------------------------------------------------
+    */
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+
+        // Jika Owner atau Platform, tampilkan semua supplier
+        if ($user && ($user->isOwner() || $user->isPlatform())) {
+            return $query;
+        }
+
+        // Karyawan biasa: hanya lihat supplier global (outlet_id null) atau supplier dari cabangnya sendiri
+        return $query->where(function ($q) use ($user) {
+            $q->whereNull('outlet_id')
+              ->orWhere('outlet_id', $user->outlet_id);
+        });
     }
 
     /*
