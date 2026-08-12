@@ -122,9 +122,22 @@ class PosCashier extends Page
         $this->syncAmountPaid();
     }
     
+    // PERBAIKAN FILTER PELANGGAN BERDASARKAN OUTLET
     public function getCustomersProperty()
     {
-        return Customer::where('company_id', filament()->getTenant()?->id)->get();
+        $tenantId = filament()->getTenant()?->id;
+        $user = auth()->user();
+        $outletId = $user->outlet_id;
+
+        return Customer::where('company_id', $tenantId)
+            ->where('is_active', true)
+            ->where(function ($query) use ($outletId) {
+                // Tampilkan pelanggan yang outlet_id nya kosong (Global)
+                // ATAU pelanggan yang terdaftar khusus di cabang kasir ini
+                $query->whereNull('outlet_id')
+                      ->orWhere('outlet_id', $outletId);
+            })
+            ->get();
     }
 
     public function getAvailableRewardsProperty()
