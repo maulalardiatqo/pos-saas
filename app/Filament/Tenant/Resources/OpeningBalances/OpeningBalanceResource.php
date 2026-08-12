@@ -16,6 +16,7 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
+
 // 3. CORE & TABLES
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -91,27 +92,34 @@ class OpeningBalanceResource extends Resource
                             ->label('Untuk Cabang / Outlet')
                             ->default(fn () => auth()->user()?->outlet_id)
                             ->searchable()
-                            ->preload()
-                            ->live() // <-- TAMBAHAN: Agar form reaktif saat outlet diubah
+                            ->preload() // preload aman di sini karena list outlet tidak bergantung field lain
+                            ->live() // Memicu update form saat diubah
                             ->afterStateUpdated(fn (Set $set) => $set('account_id', null)) 
                             ->required(),
 
                         Select::make('account_id')
-                            ->relationship('account', 'name', function (Builder $query, Get $get) {
-                                $outletId = $get('outlet_id');
-                                
-                                if (!$outletId) {
-                                    return $query->whereRaw('1 = 0');
+                            ->relationship(
+                                name: 'account', 
+                                titleAttribute: 'name', 
+                                modifyQueryUsing: function (Builder $query, Get $get) {
+                                    $outletId = $get('outlet_id');
+                                    
+                                    // Jika outlet belum dipilih, jangan tampilkan akun apapun
+                                    if (!$outletId) {
+                                        return $query->whereRaw('1 = 0');
+                                    }
+
+                                    // Tampilkan akun yang aktif, dan bersifat Global (null) ATAU milik cabang tersebut
+                                    return $query->where('is_active', true)
+                                        ->where(function ($q) use ($outletId) {
+                                            $q->whereNull('outlet_id')
+                                              ->orWhere('outlet_id', $outletId);
+                                        });
                                 }
-                                return $query->where('is_active', true)
-                                    ->where(function ($q) use ($outletId) {
-                                        $q->whereNull('outlet_id')
-                                          ->orWhere('outlet_id', $outletId);
-                                    });
-                            })
+                            )
                             ->label('Simpan ke Rekening / Kas')
                             ->searchable()
-                            ->preload()
+                            // ->preload() // <-- INI WAJIB DIHAPUS agar query dinamisnya dieksekusi via AJAX!
                             ->required(),
 
                         TextInput::make('amount_paid')
