@@ -23,9 +23,11 @@ class StockMovementsTable
                     ->searchable()
                     ->weight('bold'),
 
+                // KOLOM OUTLET: Hanya dimunculkan untuk Owner/Platform
                 TextColumn::make('outlet.name')
                     ->label('Cabang')
-                    ->searchable(),
+                    ->searchable()
+                    ->visible(fn () => auth()->user()->isOwner() || auth()->user()->isPlatform()),
 
                 TextColumn::make('type')
                     ->label('Jenis Transaksi')
@@ -60,6 +62,15 @@ class StockMovementsTable
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
+                
+                // FILTER OUTLET: Hanya dimunculkan untuk Owner/Platform
+                SelectFilter::make('outlet_id')
+                    ->label('Filter Cabang')
+                    ->relationship('outlet', 'name', fn (Builder $query) => $query->where('company_id', filament()->getTenant()?->id))
+                    ->searchable()
+                    ->preload()
+                    ->visible(fn () => auth()->user()->isOwner() || auth()->user()->isPlatform()),
+
                 SelectFilter::make('type')
                     ->label('Filter Jenis')
                     ->options([
@@ -68,6 +79,7 @@ class StockMovementsTable
                         'purchase'   => 'Pembelian',
                         'return'     => 'Retur',
                     ]),
+                    
                 SelectFilter::make('product_id')
                     ->label('Filter Produk')
                     ->relationship('product', 'name', fn (Builder $query) => $query->where('company_id', filament()->getTenant()?->id))
