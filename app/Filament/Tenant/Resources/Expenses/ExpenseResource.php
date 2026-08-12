@@ -4,7 +4,7 @@ namespace App\Filament\Tenant\Resources\Expenses;
 
 use App\Filament\Tenant\Resources\Expenses\Pages;
 use App\Models\Transaction; 
-use App\Models\Account; // <-- Wajib import model Account
+use App\Models\Account; 
 use Filament\Forms;
 use Filament\Schemas\Schema;
 use Filament\Schemas\Components\Section;
@@ -15,7 +15,7 @@ use Filament\Support\RawJs;
 use Filament\Support\Enums\Alignment;
 use Illuminate\Database\Eloquent\Builder;
 
-// Actions untuk Filament 4
+// Actions
 use Filament\Actions\EditAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -35,6 +35,10 @@ class ExpenseResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+        $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
+
         return $schema
             ->components([
                 Section::make('Form Pengeluaran Kas')
@@ -44,11 +48,19 @@ class ExpenseResource extends Resource
                         Forms\Components\Hidden::make('in_out')->default('out'),
                         Forms\Components\Hidden::make('payment_method')->default('cash'),
 
+                        // INPUT OUTLET: Dropdown jika Owner/Platform, Hidden jika Staf biasa
                         Forms\Components\Select::make('outlet_id')
                             ->label('Outlet / Cabang')
                             ->relationship('outlet', 'name')
-                            ->default(fn () => auth()->user()?->outlet_id) 
-                            ->required(),
+                            ->default(fn () => $user?->outlet_id) 
+                            ->searchable()
+                            ->preload()
+                            ->required()
+                            ->visible($isOwnerOrPlatform),
+
+                        Forms\Components\Hidden::make('outlet_id')
+                            ->default(fn () => $user?->outlet_id)
+                            ->visible(!$isOwnerOrPlatform),
 
                         Forms\Components\TextInput::make('notes') 
                             ->label('Keterangan Pengeluaran')
@@ -56,10 +68,21 @@ class ExpenseResource extends Resource
                             ->required()
                             ->maxLength(255),
 
+                        // INPUT SUMBER DANA (ACCOUNT): Hanya tampilkan akun sesuai outlet user jika bukan owner
                         Forms\Components\Select::make('account_id')
                             ->label('Sumber Dana (Rekening/Kas)')
-                            ->relationship('account', 'name', function (Builder $query) {
-                                return $query->where('is_active', true);
+                            ->relationship('account', 'name', function (Builder $query) use ($user, $isOwnerOrPlatform) {
+                                $query->where('is_active', true);
+
+                                // Jika bukan Owner/Platform, filter hanya akun milik outlet user ATAU akun Global
+                                if (!$isOwnerOrPlatform) {
+                                    $query->where(function ($q) use ($user) {
+                                        $q->whereNull('outlet_id')
+                                          ->orWhere('outlet_id', $user?->outlet_id);
+                                    });
+                                }
+
+                                return $query;
                             })
                             ->searchable()
                             ->preload()
@@ -83,6 +106,9 @@ class ExpenseResource extends Resource
 
     public static function table(Table $table): Table
     {
+        $user = auth()->user();
+        $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
+
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('transaction_number')
@@ -97,7 +123,10 @@ class ExpenseResource extends Resource
 
                 Tables\Columns\TextColumn::make('outlet.name')
                     ->label('Outlet')
-                    ->searchable(),
+                    ->searchable()
+                    ->badge()
+                    ->color('info')
+                    ->visible($isOwnerOrPlatform),
 
                 Tables\Columns\TextColumn::make('notes') 
                     ->label('Keterangan')
@@ -115,15 +144,24 @@ class ExpenseResource extends Resource
                     ->alignment(Alignment::End),
             ])
             ->filters([
+                // Filter Outlet hanya untuk Owner/Platform
                 Tables\Filters\SelectFilter::make('outlet_id')
                     ->relationship('outlet', 'name')
-                    ->label('Filter Outlet'),
+                    ->label('Filter Outlet')
+                    ->visible($isOwnerOrPlatform),
                 
                 Tables\Filters\SelectFilter::make('account_id')
-                    ->relationship('account', 'name')
+                    ->relationship('account', 'name', function (Builder $query) use ($user, $isOwnerOrPlatform) {
+                        if (!$isOwnerOrPlatform) {
+                            $query->where(function ($q) use ($user) {
+                                $q->whereNull('outlet_id')
+                                  ->orWhere('outlet_id', $user?->outlet_id);
+                            });
+                        }
+                        return $query;
+                    })
                     ->label('Filter Sumber Dana'),
             ])
-            // PERBAIKAN: Tambahkan DeleteAction dan logika Revert Saldo
             ->actions([
                 EditAction::make(),
                 DeleteAction::make()
@@ -171,7 +209,7 @@ class ExpenseResource extends Resource
         /** @var \App\Models\User $user */
         $user = auth()->user();
 
-        if ($user && $user->isOwner()) {
+        if ($user && ($user->isOwner() || $user->isPlatform())) {
             return $query;
         }
 

@@ -35,6 +35,10 @@ class RevenueResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+        $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
+
         return $schema
             ->components([
                 Section::make('Form Pemasukan Kas')
@@ -44,11 +48,19 @@ class RevenueResource extends Resource
                         Forms\Components\Hidden::make('in_out')->default('in'),
                         Forms\Components\Hidden::make('payment_method')->default('cash'),
 
+                        // INPUT OUTLET: Select untuk Owner/Platform, Hidden untuk staf biasa
                         Forms\Components\Select::make('outlet_id')
                             ->label('Outlet / Cabang')
                             ->relationship('outlet', 'name')
-                            ->default(fn () => auth()->user()?->outlet_id)
-                            ->required(),
+                            ->default(fn () => $user?->outlet_id)
+                            ->searchable()
+                            ->preload()
+                            ->required()
+                            ->visible($isOwnerOrPlatform),
+
+                        Forms\Components\Hidden::make('outlet_id')
+                            ->default(fn () => $user?->outlet_id)
+                            ->visible(!$isOwnerOrPlatform),
 
                         Forms\Components\TextInput::make('notes') 
                             ->label('Keterangan Pemasukan')
@@ -56,10 +68,21 @@ class RevenueResource extends Resource
                             ->required()
                             ->maxLength(255),
 
+                        // INPUT ACCOUNT: Tampilkan akun sesuai outlet user jika bukan owner
                         Forms\Components\Select::make('account_id')
                             ->label('Disimpan Ke (Rekening/Kas)')
-                            ->relationship('account', 'name', function (Builder $query) {
-                                return $query->where('is_active', true);
+                            ->relationship('account', 'name', function (Builder $query) use ($user, $isOwnerOrPlatform) {
+                                $query->where('is_active', true);
+
+                                // Jika bukan Owner/Platform, filter hanya akun milik outlet user ATAU akun Global
+                                if (!$isOwnerOrPlatform) {
+                                    $query->where(function ($q) use ($user) {
+                                        $q->whereNull('outlet_id')
+                                          ->orWhere('outlet_id', $user?->outlet_id);
+                                    });
+                                }
+
+                                return $query;
                             })
                             ->searchable()
                             ->preload()
@@ -83,6 +106,9 @@ class RevenueResource extends Resource
 
     public static function table(Table $table): Table
     {
+        $user = auth()->user();
+        $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
+
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('transaction_number')
@@ -95,9 +121,13 @@ class RevenueResource extends Resource
                     ->dateTime('d M Y, H:i')
                     ->sortable(),
 
+                // Kolom Outlet hanya terlihat oleh Owner/Platform
                 Tables\Columns\TextColumn::make('outlet.name')
                     ->label('Outlet')
-                    ->searchable(),
+                    ->searchable()
+                    ->badge()
+                    ->color('info')
+                    ->visible($isOwnerOrPlatform),
 
                 Tables\Columns\TextColumn::make('notes') 
                     ->label('Keterangan')
@@ -119,15 +149,23 @@ class RevenueResource extends Resource
             ->filters([
                 Tables\Filters\SelectFilter::make('outlet_id')
                     ->relationship('outlet', 'name')
-                    ->label('Filter Outlet'),
+                    ->label('Filter Outlet')
+                    ->visible($isOwnerOrPlatform),
                     
                 Tables\Filters\SelectFilter::make('account_id')
-                    ->relationship('account', 'name')
+                    ->relationship('account', 'name', function (Builder $query) use ($user, $isOwnerOrPlatform) {
+                        if (!$isOwnerOrPlatform) {
+                            $query->where(function ($q) use ($user) {
+                                $q->whereNull('outlet_id')
+                                  ->orWhere('outlet_id', $user?->outlet_id);
+                            });
+                        }
+                        return $query;
+                    })
                     ->label('Filter Rekening'),
             ])
             ->actions([
                 EditAction::make(),
-                // PERBAIKAN: Tarik saldo jika dihapus dari tabel
                 DeleteAction::make()
                     ->before(function (Transaction $record) {
                         if ($record->account_id) {
@@ -173,7 +211,7 @@ class RevenueResource extends Resource
         /** @var \App\Models\User $user */
         $user = auth()->user();
 
-        if ($user && $user->isOwner()) {
+        if ($user && ($user->isOwner() || $user->isPlatform())) {
             return $query;
         }
 

@@ -45,11 +45,15 @@ class PurchaseOrderForm
 
     public static function form(Schema $schema): Schema
     {
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+        $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
+
         return $schema
             ->schema([
                 Section::make('Informasi Pembelian')
                     ->schema([
-                        // TAMBAHAN: Set status otomatis jadi out (Uang Keluar)
+                        // Set status otomatis jadi out (Uang Keluar)
                         Hidden::make('in_out')->default('out'),
 
                         Group::make([
@@ -67,8 +71,8 @@ class PurchaseOrderForm
                             Select::make('outlet_id')
                                 ->relationship('outlet', 'name')
                                 ->label('Untuk Outlet / Cabang')
-                                ->default(fn () => auth()->user()?->outlet_id)
-                                ->disabled(fn () => !auth()->user()?->isOwner() && !auth()->user()?->isPlatform())
+                                ->default(fn () => $user?->outlet_id)
+                                ->disabled(!$isOwnerOrPlatform)
                                 ->dehydrated() 
                                 ->searchable()
                                 ->preload()
@@ -77,7 +81,19 @@ class PurchaseOrderForm
 
                         Group::make([
                             Select::make('supplier_id')
-                                ->relationship('supplier', 'name')
+                                ->relationship('supplier', 'name', function (Builder $query) use ($user, $isOwnerOrPlatform) {
+                                    $query->where('is_active', true);
+
+                                    // Filter supplier berdasarkan outlet jika bukan owner
+                                    if (!$isOwnerOrPlatform) {
+                                        $query->where(function ($q) use ($user) {
+                                            $q->whereNull('outlet_id')
+                                              ->orWhere('outlet_id', $user?->outlet_id);
+                                        });
+                                    }
+
+                                    return $query;
+                                })
                                 ->label('Pemasok (Vendor)')
                                 ->searchable()
                                 ->preload()
@@ -86,7 +102,7 @@ class PurchaseOrderForm
                             Select::make('status')
                                 ->label('Status Dokumen')
                                 ->options([
-                                    'pending' => 'Tertunda (Pending)',
+                                    'pending'   => 'Tertunda (Pending)',
                                     'completed' => 'Selesai (Completed)',
                                     'cancelled' => 'Dibatalkan (Cancelled)',
                                 ])
@@ -105,21 +121,31 @@ class PurchaseOrderForm
                             Select::make('payment_method')
                                 ->label('Metode Pembayaran')
                                 ->options([
-                                    'cash' => 'Cash',
-                                    'qris' => 'QRIS',
-                                    'transfer' => 'Transfer',
-                                    'debit_card' => 'Debit Card',
+                                    'cash'        => 'Cash',
+                                    'qris'        => 'QRIS',
+                                    'transfer'    => 'Transfer',
+                                    'debit_card'  => 'Debit Card',
                                     'credit_card' => 'Credit Card',
-                                    'ewallet' => 'E-Wallet',
+                                    'ewallet'     => 'E-Wallet',
                                 ])
                                 ->default('cash')
                                 ->required(),
 
-                            // TAMBAHAN: Akun Keuangan / Sumber Dana
+                            // AKUN KEUANGAN / SUMBER DANA (Filtered by Outlet for Non-Owners)
                             Select::make('account_id')
                                 ->label('Sumber Dana (Rekening/Kas)')
-                                ->relationship('account', 'name', function (Builder $query) {
-                                    return $query->where('is_active', true);
+                                ->relationship('account', 'name', function (Builder $query) use ($user, $isOwnerOrPlatform) {
+                                    $query->where('is_active', true);
+
+                                    // Jika bukan Owner/Platform, hanya tampilkan akun milik outlet user ATAU akun Global
+                                    if (!$isOwnerOrPlatform) {
+                                        $query->where(function ($q) use ($user) {
+                                            $q->whereNull('outlet_id')
+                                              ->orWhere('outlet_id', $user?->outlet_id);
+                                        });
+                                    }
+
+                                    return $query;
                                 })
                                 ->searchable()
                                 ->preload()
@@ -153,7 +179,6 @@ class PurchaseOrderForm
                                         $set('uom_id', null);
                                         $set('conversion_factor', 1);
                                         
-                                        // Set a hidden base cost price when product is selected
                                         if ($state) {
                                             $product = DB::table('products')->where('id', $state)->first();
                                             if ($product) {
@@ -214,14 +239,10 @@ class PurchaseOrderForm
                                             $qty = (float) $get('qty') ?: 1;
                                             $set('base_qty', $qty * $factor);
 
-                                            // Calculate and set the suggested cost_price based on base cost and conversion factor
                                             $baseCostPrice = (float) ($get('_base_cost_price') ?? 0);
                                             $suggestedCostPrice = $baseCostPrice * $factor;
                                             
-                                            // Format the suggested price so the JS mask handles it cleanly if needed
                                             $set('cost_price', number_format($suggestedCostPrice, 0, '', ''));
-                                            
-                                            // Update subtotal automatically
                                             $set('subtotal', $qty * $suggestedCostPrice);
                                         }
                                     })
@@ -230,7 +251,7 @@ class PurchaseOrderForm
                                 Hidden::make('conversion_factor')->default(1)->dehydrated(),
                                 Hidden::make('base_qty')->default(1)->dehydrated(),
                                 Hidden::make('selling_price')->default(0),
-                                Hidden::make('_base_cost_price')->dehydrated(false), // Temporary storage for base cost
+                                Hidden::make('_base_cost_price')->dehydrated(false),
                                     
                                 TextInput::make('cost_price')
                                     ->label('Harga Beli Satuan')
