@@ -10,6 +10,7 @@ use App\Models\Category;
 use App\Models\Customer;
 use App\Models\LoyaltyReward;
 use App\Models\StockMovement;
+use App\Models\Stock; // <-- IMPORT MODEL STOCK BARU KITA
 use App\Models\Transaction;
 
 class PosSyncController extends Controller
@@ -50,6 +51,7 @@ class PosSyncController extends Controller
                 // Hanya ambil akun yang global (null) atau khusus outlet kasir ini
                 $q->where('outlet_id', $outletId)->orWhereNull('outlet_id');
             })->get(['id', 'name', 'payment_methods', 'outlet_id', 'account_number']);
+            
         // =====================================================================
         // 2. KATEGORI
         // =====================================================================
@@ -85,11 +87,10 @@ class PosSyncController extends Controller
         // =====================================================================
         // 5. PRODUK & STOK (Hanya untuk Outlet Kasir yang sedang Login)
         // =====================================================================
-        // Subquery untuk mengambil stok riil terakhir di outlet kasir tersebut
-        $latestStockSubquery = StockMovement::select('balance_after')
+        // PERBAIKAN: Baca stok riil dari tabel `stocks` secara kilat
+        $latestStockSubquery = Stock::selectRaw('COALESCE(qty, 0)')
             ->whereColumn('product_id', 'products.id')
             ->where('outlet_id', $outletId)
-            ->latest('created_at')
             ->limit(1);
 
         $products = Product::query()
@@ -157,6 +158,7 @@ class PosSyncController extends Controller
             'accounts' => $accounts,
         ]);
     }
+    
     // =========================================================================
     // PILAR 4: MENERIMA UPLOAD TRANSAKSI OFFLINE DARI MOBILE POS
     // =========================================================================
@@ -239,21 +241,28 @@ class PosSyncController extends Controller
                         'qty'               => $item['qty'],
                         'conversion_factor' => $item['conversion_factor'] ?? 1,
                         'base_qty'          => $item['qty'] * ($item['conversion_factor'] ?? 1),
-                        'cost_price'        => $totalCostPrice, // <-- INI YANG TADI MENGHILANG
+                        'cost_price'        => $totalCostPrice, 
                         'selling_price'     => $item['price'] ?? ($product ? $product->base_price : 0),
                         'subtotal'          => $item['subtotal'],
                     ]);
 
-                    // Potong stok (kecuali Jasa)
+                    // Potong stok (kecuali Jasa) - MENGGUNAKAN TABEL STOCKS DENGAN LOCKING
                     if ($product && $product->item_type !== 'service') {
                         $baseQty = $item['qty'] * ($item['conversion_factor'] ?? 1);
                         
-                        $lastMovement = \App\Models\StockMovement::where('product_id', $product->id)
-                                            ->where('outlet_id', $outletId)
-                                            ->latest('created_at')
-                                            ->first();
-                                            
-                        $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
+                        $stockRecord = Stock::firstOrCreate(
+                            ['company_id' => $tenantId, 'outlet_id' => $outletId, 'product_id' => $product->id],
+                            ['qty' => 0]
+                        );
+                        
+                        // Kunci baris stok ini agar tidak ditabrak transaksi lain
+                        $stockRecord->lockForUpdate();
+
+                        $balanceBefore = (float) $stockRecord->qty;
+                        $balanceAfter = $balanceBefore - $baseQty;
+
+                        // Update saldo stok terbaru
+                        $stockRecord->update(['qty' => $balanceAfter]);
 
                         \App\Models\StockMovement::create([
                             'company_id'     => $tenantId, 
@@ -264,7 +273,7 @@ class PosSyncController extends Controller
                             'reference_id'   => $newTrx->id,
                             'quantity'       => $baseQty,
                             'balance_before' => $balanceBefore,
-                            'balance_after'  => $balanceBefore - $baseQty,
+                            'balance_after'  => $balanceAfter,
                             'remarks'        => 'Sinkronisasi POS Offline: ' . $newTrx->transaction_number,
                             'created_at'     => $newTrx->created_at, 
                         ]);

@@ -90,6 +90,7 @@ class StockAdjustmentController extends Controller
             }
             DB::table('stock_adjustment_items')->insert($itemsData);
 
+            // 3. TRIGGER OBSERVER JIKA STATUS COMPLETED
             if ($adjustment->status === 'completed') {
                 (new StockAdjustmentObserver())->processStockMovements($adjustment);
             }
@@ -145,6 +146,7 @@ class StockAdjustmentController extends Controller
             }
             DB::table('stock_adjustment_items')->insert($itemsData);
 
+            // TRIGGER OBSERVER JIKA STATUS DIUBAH DARI DRAFT KE COMPLETED
             if ($adjustment->status === 'completed') {
                 (new StockAdjustmentObserver())->processStockMovements($adjustment);
             }

@@ -191,22 +191,18 @@ class Dashboard extends Page
         $cashBalance = $cashIn - $cashOut;
 
         // =========================================================
-        // 7. PERHITUNGAN STOK MENIPIS (Berdasarkan StockMovement)
+        // 7. PERHITUNGAN STOK MENIPIS (SEKARANG LANGSUNG DARI TABEL STOCKS)
         // =========================================================
         $activeOutletId = $this->outletId ?? $user->outlet_id ?? Outlet::where('company_id', $tenantId)->value('id');
 
-        $latestStockSubquery = \App\Models\StockMovement::select('balance_after')
-            ->whereColumn('product_id', 'products.id')
-            ->where('outlet_id', $activeOutletId)
-            ->latest('created_at')
-            ->limit(1);
-
-        $lowStockCount = \App\Models\Product::where('company_id', $tenantId)
-            ->where('is_active', 1)
-            ->where('item_type', 'goods') // Hanya hitung barang fisik
-            ->selectSub($latestStockSubquery, 'current_stock')
-            ->get()
-            ->where('current_stock', '<=', 5)
+        // PERBAIKAN: Query langsung ke tabel stocks dan filter di database, BUKAN di memori (->get()->where...)
+        $lowStockCount = DB::table('stocks')
+            ->join('products', 'stocks.product_id', '=', 'products.id')
+            ->where('stocks.company_id', $tenantId)
+            ->where('stocks.outlet_id', $activeOutletId)
+            ->where('products.is_active', 1)
+            ->where('products.item_type', 'goods')
+            ->where('stocks.qty', '<=', 5)
             ->count();
 
         return [
@@ -225,7 +221,7 @@ class Dashboard extends Page
             'topCategories' => $topCategories,
             'topProducts' => $topProducts,
             'cash' => ['in' => $cashIn, 'out' => $cashOut, 'balance' => $cashBalance],
-            'lowStockCount' => $lowStockCount // Memasukkan hasil hitungan yang akurat
+            'lowStockCount' => $lowStockCount 
         ];
     }
 }

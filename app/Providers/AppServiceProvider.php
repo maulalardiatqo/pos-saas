@@ -10,12 +10,14 @@ use App\Observers\StockAdjustmentObserver;
 use App\Observers\OutletObserver;
 use App\Observers\PurchaseOrderObserver;
 use App\Observers\PointHistoryObserver;
+
 use App\Models\Outlet;
 use App\Models\PurchaseOrder;
 use App\Models\PointHistory;
 use Laravel\Sanctum\Sanctum; 
 use App\Models\PersonalAccessToken;
-
+use App\Models\StockTransfer;
+use App\Observers\StockTransferObserver;
 class AppServiceProvider extends ServiceProvider
 {
     /**
@@ -37,5 +39,6 @@ class AppServiceProvider extends ServiceProvider
         PurchaseOrder::observe(PurchaseOrderObserver::class);
         PointHistory::observe(PointHistoryObserver::class);
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
+        StockTransfer::observe(StockTransferObserver::class);
     }
 }

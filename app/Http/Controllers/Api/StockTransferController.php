@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\StockTransfer;
 use App\Models\StockTransferItem;
 use App\Models\StockMovement;
+use App\Models\Stock; // <-- IMPORT MODEL STOCK BARU KITA
 use App\Models\Outlet;
 use App\Models\Product;
+use App\Observers\StockTransferObserver; // <-- IMPORT OBSERVER MUTASI STOK
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log; // <-- Tambahkan untuk melacak error
+use Illuminate\Support\Facades\Log;
 
 class StockTransferController extends Controller
 {
@@ -45,13 +47,12 @@ class StockTransferController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
-            // Catat error di file laravel.log agar kita tahu apa masalah aslinya
             Log::error('API StockTransfer Index Error: ' . $e->getMessage());
             
             return response()->json([
                 'success' => false,
                 'message' => 'Backend Error: ' . $e->getMessage(),
-            ], 500); // Harus melempar 500 agar tertangkap dengan jelas
+            ], 500);
         }
     }
 
@@ -63,14 +64,14 @@ class StockTransferController extends Controller
                 'product_id' => 'required|string',
             ]);
 
-            $lastStock = StockMovement::where('product_id', $request->product_id)
+            // PERBAIKAN: Cek stok langsung dari tabel stocks
+            $stockRecord = Stock::where('product_id', $request->product_id)
                 ->where('outlet_id', $request->outlet_id)
-                ->latest()
                 ->first();
 
             return response()->json([
                 'success' => true,
-                'stock' => $lastStock ? (int) $lastStock->balance_after : 0,
+                'stock' => $stockRecord ? (float) $stockRecord->qty : 0,
             ]);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'stock' => 0]);
@@ -88,16 +89,15 @@ class StockTransferController extends Controller
             'notes' => 'nullable|string',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.quantity' => 'required|numeric|min:0.1',
         ]);
 
-        // Validasi ketersediaan stok fisik di outlet asal
+        // PERBAIKAN: Validasi ketersediaan stok fisik di outlet asal dari tabel stocks
         foreach ($request->items as $item) {
-            $lastStock = StockMovement::where('product_id', $item['product_id'])
+            $stockRecord = Stock::where('product_id', $item['product_id'])
                 ->where('outlet_id', $request->from_outlet_id)
-                ->latest()
                 ->first();
-            $available = $lastStock ? (int) $lastStock->balance_after : 0;
+            $available = $stockRecord ? (float) $stockRecord->qty : 0;
 
             if ($item['quantity'] > $available) {
                 $product = Product::find($item['product_id']);
@@ -137,6 +137,7 @@ class StockTransferController extends Controller
             return response()->json(['success' => false, 'message' => 'Gagal: ' . $e->getMessage()], 500);
         }
     }
+
     public function update(Request $request, $id)
     {
         try {
@@ -154,16 +155,15 @@ class StockTransferController extends Controller
                 'notes' => 'nullable|string',
                 'items' => 'required|array|min:1',
                 'items.*.product_id' => 'required|exists:products,id',
-                'items.*.quantity' => 'required|integer|min:1',
+                'items.*.quantity' => 'required|numeric|min:0.1',
             ]);
 
-            // Validasi ketersediaan stok
+            // PERBAIKAN: Validasi ketersediaan stok dari tabel stocks
             foreach ($request->items as $item) {
-                $lastStock = StockMovement::where('product_id', $item['product_id'])
+                $stockRecord = Stock::where('product_id', $item['product_id'])
                     ->where('outlet_id', $request->from_outlet_id)
-                    ->latest()
                     ->first();
-                $available = $lastStock ? (int) $lastStock->balance_after : 0;
+                $available = $stockRecord ? (float) $stockRecord->qty : 0;
 
                 if ($item['quantity'] > $available) {
                     $product = Product::find($item['product_id']);
@@ -184,10 +184,9 @@ class StockTransferController extends Controller
                 'notes' => $request->notes,
             ]);
 
-            // Hapus items lama
+            // Hapus items lama & insert items baru
             $transfer->items()->delete();
 
-            // Insert items baru
             foreach ($request->items as $item) {
                 StockTransferItem::create([
                     'stock_transfer_id' => $transfer->id,
@@ -203,6 +202,7 @@ class StockTransferController extends Controller
             return response()->json(['success' => false, 'message' => 'Gagal: ' . $e->getMessage()], 500);
         }
     }
+
     public function complete(Request $request, $id)
     {
         try {
@@ -213,10 +213,19 @@ class StockTransferController extends Controller
                 return response()->json(['success' => false, 'message' => 'Sudah diselesaikan.'], 400);
             }
 
-            $transfer->markAsCompleted();
+            DB::beginTransaction();
+
+            // 1. Ubah status dokumen
+            $transfer->update(['status' => 'completed']);
+
+            // 2. PERBAIKAN: Panggil Observer untuk memindahkan stok riil antar gudang
+            (new StockTransferObserver())->processStockMovements($transfer);
+
+            DB::commit();
 
             return response()->json(['success' => true, 'message' => 'Stok berhasil dipindahkan.']);
         } catch (\Exception $e) {
+            DB::rollBack();
             return response()->json(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
         }
     }

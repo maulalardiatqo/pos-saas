@@ -14,14 +14,12 @@ class ProductReportsTable
     public static function configure(Table $table): Table
     {
         return $table
-            // 1. INJEKSI SUBQUERY & AMBIL FILTER DARI LIVEWIRE BLADE
             ->modifyQueryUsing(function (Builder $query, \Filament\Tables\Contracts\HasTable $livewire) {
                 /** @var \App\Models\User $user */
                 $user = auth()->user();
                 $isOwner = $user->isOwner() || $user->isPlatform();
                 $tenantId = filament()->getTenant()->id;
 
-                // Ambil nilai filter dari properti Livewire di ListProductReports
                 $startDate = $livewire->startDate ? Carbon::parse($livewire->startDate)->startOfDay() : now()->startOfMonth()->startOfDay();
                 $endDate = $livewire->endDate ? Carbon::parse($livewire->endDate)->endOfDay() : now()->endOfDay();
                 $outletId = $livewire->outletId ?? ($isOwner ? null : $user->outlet_id);
@@ -46,12 +44,15 @@ class ProductReportsTable
                 $hppSub = clone $terjualSub;
                 $hppSub->select(DB::raw('COALESCE(SUM(transaction_items.qty * transaction_items.cost_price), 0)'));
 
-                // --- SUBQUERY STOK AKHIR ---
-                $stokSub = DB::table('stock_movements')
-                    ->whereColumn('stock_movements.product_id', 'products.id')
-                    ->orderByDesc('created_at')
-                    ->select('balance_after')
-                    ->limit(1);
+                // =======================================================
+                // PERBAIKAN: SUBQUERY STOK AKHIR MENGGUNAKAN TABEL `stocks`
+                // =======================================================
+                $stokSub = DB::table('stocks')
+                    ->whereColumn('stocks.product_id', 'products.id')
+                    ->select(DB::raw('COALESCE(SUM(stocks.qty), 0)'));
+                if ($outletId) {
+                    $stokSub->where('stocks.outlet_id', $outletId);
+                }
 
                 // Masukkan semua subquery ke dalam query utama Product
                 $query->select('products.*')
@@ -60,7 +61,6 @@ class ProductReportsTable
                     ->selectSub($hppSub, 'hpp_total')
                     ->selectSub($stokSub, 'stok_akhir');
             })
-            // 2. DEFINISI KOLOM TABEL SESUAI DESAIN UI
             ->columns([
                 ImageColumn::make('image_url')
                     ->label('Foto')
@@ -123,7 +123,6 @@ class ProductReportsTable
                     ->badge()
                     ->color(fn ($state) => $state <= 5 ? 'danger' : 'gray'),
             ])
-            // 3. MENGHILANGKAN TOMBOL ACTION (Read Only)
             ->actions([]) 
             ->bulkActions([])
             ->defaultSort('penjualan', 'desc')

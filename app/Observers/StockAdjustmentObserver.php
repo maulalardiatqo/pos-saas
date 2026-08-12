@@ -4,12 +4,11 @@ namespace App\Observers;
 
 use App\Models\StockAdjustment;
 use App\Models\StockMovement;
+use App\Models\Stock; 
 use Illuminate\Support\Facades\DB;
 
 class StockAdjustmentObserver
 {
-    // HAPUS function created() dan updated() di sini
-
     /**
      * Ubah menjadi PUBLIC agar bisa dipanggil dari Filament Pages
      */
@@ -21,31 +20,36 @@ class StockAdjustmentObserver
             if ($stockAdjustment->items->isEmpty()) {
                 return;
             }
-            
-            foreach ($stockAdjustment->items as $item) {
-                
-                // 1. Cari saldo terakhir
-                $lastMovement = StockMovement::where('product_id', $item->product_id)
-                    ->where('outlet_id', $stockAdjustment->outlet_id)
-                    ->latest('created_at')
-                    ->first();
-                    
-                $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0;
-                
+            $items = $stockAdjustment->items->sortBy('product_id');
+
+            foreach ($items as $item) {
                 $pivotData = DB::table('product_uoms')
                     ->where('product_id', $item->product_id)
                     ->where('uom_id', $item->uom_id) 
                     ->whereNull('deleted_at')
                     ->first();
+                    
                 $conversionFactor = $pivotData ? (float) $pivotData->conversion_factor : 1;
-                
                 $qtyToMutate = (float) $item->quantity * $conversionFactor; 
-                
+                $stockRecord = Stock::firstOrCreate(
+                    [
+                        'company_id' => $stockAdjustment->company_id,
+                        'outlet_id'  => $stockAdjustment->outlet_id,
+                        'product_id' => $item->product_id,
+                    ],
+                    ['qty' => 0] 
+                );
+                $stockRecord->lockForUpdate();
+
+                $balanceBefore = (float) $stockRecord->qty;
                 if ($item->type === 'deduction') {
                     $balanceAfter = $balanceBefore - $qtyToMutate;
                 } else { 
                     $balanceAfter = $balanceBefore + $qtyToMutate;
                 }
+
+                $stockRecord->update(['qty' => $balanceAfter]);
+
                 $stockAdjustment->movements()->create([
                     'company_id'     => $stockAdjustment->company_id,
                     'outlet_id'      => $stockAdjustment->outlet_id,

@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Models\PurchaseOrder;
 use App\Models\StockMovement;
+use App\Models\Stock;
 use App\Models\Account; 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -56,28 +57,21 @@ class PurchaseOrderObserver
             // -------------------------------------------------------------
             // 1. POTONG SALDO AKUN KEUANGAN (JIKA STATUS COMPLETED & ADA AKUN)
             // -------------------------------------------------------------
-            // Kita cek apakah akun dipilih dan nominal bayar/grand total ada
             $paymentAmount = (float) ($purchaseOrder->amount_paid > 0 ? $purchaseOrder->amount_paid : $purchaseOrder->grand_total);
             
             if (!empty($purchaseOrder->account_id) && $paymentAmount > 0) {
-                // Pastikan saldo hanya dipotong sekali (hindari double decrement jika sudah pernah dipotong)
-                // Anda bisa menambahkan flag atau langsung mengurangi jika logika form memastikan ini aman
                 Account::where('id', $purchaseOrder->account_id)
                     ->decrement('balance', $paymentAmount);
             }
 
-            foreach ($purchaseOrder->items as $item) {
+            // Urutkan item untuk mencegah Deadlock pada tabel stocks dan products
+            $items = $purchaseOrder->items->sortBy('product_id');
+
+            foreach ($items as $item) {
                 $itemType = $item->product->type ?? $item->product->item_type ?? '';
                 if ($itemType === 'service') {
                     continue;
                 }
-
-                $lastMovement = StockMovement::where('product_id', $item->product_id)
-                    ->where('outlet_id', $purchaseOrder->outlet_id)
-                    ->latest('created_at')
-                    ->first();
-                    
-                $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0;
 
                 $pivotData = DB::table('product_uoms')
                     ->where('product_id', $item->product_id)
@@ -86,11 +80,30 @@ class PurchaseOrderObserver
                     ->first();
 
                 $conversionFactor = $pivotData ? (float) $pivotData->conversion_factor : 1;
-                
                 $qtyToMutate = (float) $item->qty * $conversionFactor; 
+
+                // -------------------------------------------------------------
+                // 2. AMBIL DAN KUNCI STOK (PESSIMISTIC LOCKING)
+                // -------------------------------------------------------------
+                $stockRecord = Stock::firstOrCreate(
+                    [
+                        'company_id' => $purchaseOrder->company_id,
+                        'outlet_id'  => $purchaseOrder->outlet_id,
+                        'product_id' => $item->product_id,
+                    ],
+                    ['qty' => 0]
+                );
+
+                // Kunci baris spesifik ini
+                $stockRecord->lockForUpdate();
+
+                $balanceBefore = (float) $stockRecord->qty;
                 $balanceAfter = $balanceBefore + $qtyToMutate; 
 
-                // 2. CATAT STOCK MOVEMENT
+                // UPDATE TABLE STOCKS
+                $stockRecord->update(['qty' => $balanceAfter]);
+
+                // 3. CATAT STOCK MOVEMENT
                 StockMovement::create([
                     'company_id'     => $purchaseOrder->company_id,
                     'outlet_id'      => $purchaseOrder->outlet_id,
@@ -104,13 +117,16 @@ class PurchaseOrderObserver
                     'remarks'        => 'Pembelian otomatis dari ' . $purchaseOrder->transaction_number,
                 ]);
 
-                // 3. LOGIKA MOVING AVERAGE (HPP BARU)
+                // -------------------------------------------------------------
+                // 4. LOGIKA MOVING AVERAGE (HPP BARU)
+                // -------------------------------------------------------------
                 $unitPrice = (float) ($item->cost_price > 0 ? $item->cost_price : $item->selling_price);
                 $pricePerBaseUom = $conversionFactor > 0 ? ($unitPrice / $conversionFactor) : $unitPrice;
                 
                 $product = $item->product;
                 $oldCost = (float) $product->cost_price;
-                $totalStock = $balanceBefore + $qtyToMutate;
+                $totalStock = $balanceAfter; // Menggunakan stock mutlak setelah ditambahkan
+                
                 if ($totalStock > 0) {
                     $newCost = (($balanceBefore * $oldCost) + ($qtyToMutate * $pricePerBaseUom)) / $totalStock;
                     
@@ -119,6 +135,9 @@ class PurchaseOrderObserver
                     ]);
                 }
 
+                // -------------------------------------------------------------
+                // 5. UPDATE LAST PURCHASE PRICE (SUPPLIER)
+                // -------------------------------------------------------------
                 if (!empty($purchaseOrder->supplier_id)) {
                     $supplierPivot = DB::table('product_supplier')
                         ->where('product_id', $item->product_id)
@@ -182,18 +201,14 @@ class PurchaseOrderObserver
                 return;
             }
 
-            foreach ($purchaseOrder->items as $item) {
+            // Urutkan item untuk mencegah Deadlock
+            $items = $purchaseOrder->items->sortBy('product_id');
+
+            foreach ($items as $item) {
                 $itemType = $item->product->type ?? $item->product->item_type ?? '';
                 if ($itemType === 'service') {
                     continue;
                 }
-
-                $lastMovement = StockMovement::where('product_id', $item->product_id)
-                    ->where('outlet_id', $purchaseOrder->outlet_id)
-                    ->latest('created_at')
-                    ->first();
-                    
-                $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0;
 
                 $pivotData = DB::table('product_uoms')
                     ->where('product_id', $item->product_id)
@@ -202,10 +217,30 @@ class PurchaseOrderObserver
                     ->first();
 
                 $conversionFactor = $pivotData ? (float) $pivotData->conversion_factor : 1;
-                
                 $qtyToMutate = (float) $item->qty * $conversionFactor; 
+
+                // -------------------------------------------------------------
+                // AMBIL DAN KUNCI STOK (PESSIMISTIC LOCKING) UNTUK REVERSE
+                // -------------------------------------------------------------
+                $stockRecord = Stock::firstOrCreate(
+                    [
+                        'company_id' => $purchaseOrder->company_id,
+                        'outlet_id'  => $purchaseOrder->outlet_id,
+                        'product_id' => $item->product_id,
+                    ],
+                    ['qty' => 0]
+                );
+
+                // Kunci baris spesifik ini
+                $stockRecord->lockForUpdate();
+
+                $balanceBefore = (float) $stockRecord->qty;
                 
+                // Karena di-reverse (dihapus/batal), stok DIKURANGI
                 $balanceAfter = $balanceBefore - $qtyToMutate; 
+
+                // UPDATE TABLE STOCKS
+                $stockRecord->update(['qty' => $balanceAfter]);
 
                 StockMovement::create([
                     'company_id'     => $purchaseOrder->company_id,

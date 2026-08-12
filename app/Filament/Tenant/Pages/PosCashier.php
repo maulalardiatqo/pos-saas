@@ -6,6 +6,7 @@ use Filament\Pages\Page;
 use App\Models\Product;
 use App\Models\Category;
 use App\Models\StockMovement;
+use App\Models\Stock; // <-- IMPORT MODEL STOCK BARU KITA
 use App\Models\Transaction;
 use App\Models\TransactionItem;
 use App\Models\PointHistory;
@@ -67,10 +68,10 @@ class PosCashier extends Page
         $tenantId = filament()->getTenant()?->id;
         $outletId = $user->outlet_id;
 
-        $latestStockSubquery = StockMovement::select('balance_after')
+        // PERBAIKAN STOK: Membaca langsung dari tabel stocks (Lebih Ringan)
+        $latestStockSubquery = Stock::selectRaw('COALESCE(qty, 0)')
             ->whereColumn('product_id', 'products.id')
             ->where('outlet_id', $outletId)
-            ->latest('created_at')
             ->limit(1);
 
         return Product::query()
@@ -554,7 +555,7 @@ class PosCashier extends Page
                 }
             }
 
-            // --- 2. PESSIMISTIC LOCKING: KUNCI PRODUK YANG MAU DIBELI ---
+            // --- 2. PESSIMISTIC LOCKING PADA PRODUCT UNTUK MENCEGAH DEADLOCK ANTAR TRANSAKSI ---
             if (!empty($requiredStocks)) {
                 $productIdsToLock = array_keys($requiredStocks);
                 
@@ -568,15 +569,14 @@ class PosCashier extends Page
                     ->get()
                     ->keyBy('id');
 
-                // --- 3. VALIDASI STOK (Aman dari Race Condition) ---
+                // --- 3. VALIDASI STOK (Membaca langsung dari tabel stocks) ---
                 foreach ($requiredStocks as $prodId => $totalNeeded) {
-                    $stockMov = DB::table('stock_movements')
+                    $stockRecord = DB::table('stocks')
                         ->where('product_id', $prodId)
                         ->where('outlet_id', $outletId)
-                        ->latest('created_at')
                         ->first();
                         
-                    $available = $stockMov ? (float)$stockMov->balance_after : 0;
+                    $available = $stockRecord ? (float)$stockRecord->qty : 0;
                     
                     if ($totalNeeded > $available) {
                         $prodName = $lockedProducts[$prodId]->name ?? 'Produk';
@@ -804,25 +804,45 @@ class PosCashier extends Page
                     $child = DB::table('products')->where('id', $comp->child_product_id)->first();
                     if ($child && $child->item_type === 'goods') {
                         $qtyToDeduct = $trxItem->base_qty * (float)$comp->quantity;
-                        $lastMovement = StockMovement::where('product_id', $comp->child_product_id)->where('outlet_id', $outletId)->latest()->first();
-                        $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
+                        
+                        // PEMOTONGAN STOK BUNDLE DENGAN TABEL STOCKS + LOCKING
+                        $stockRecord = Stock::firstOrCreate(
+                            ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $comp->child_product_id],
+                            ['qty' => 0]
+                        );
+                        $stockRecord->lockForUpdate();
+                        
+                        $balanceBefore = (float) $stockRecord->qty;
+                        $balanceAfter = $balanceBefore - $qtyToDeduct;
+                        
+                        $stockRecord->update(['qty' => $balanceAfter]);
 
                         StockMovement::create([
                             'company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $comp->child_product_id,
                             'type' => 'sale', 'reference_type' => Transaction::class, 'reference_id' => $transaction->id,
-                            'quantity' => $qtyToDeduct, 'balance_before' => $balanceBefore, 'balance_after' => $balanceBefore - $qtyToDeduct,
+                            'quantity' => $qtyToDeduct, 'balance_before' => $balanceBefore, 'balance_after' => $balanceAfter,
                             'remarks' => "Terjual dalam Paket/Bundle. Nota: " . $transaction->transaction_number,
                         ]);
                     }
                 }
             } elseif (!$isService) {
-                $lastMovement = StockMovement::where('product_id', $product->id)->where('outlet_id', $outletId)->latest()->first();
-                $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
+                
+                // PEMOTONGAN STOK STANDAR DENGAN TABEL STOCKS + LOCKING
+                $stockRecord = Stock::firstOrCreate(
+                    ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $product->id],
+                    ['qty' => 0]
+                );
+                $stockRecord->lockForUpdate();
+                
+                $balanceBefore = (float) $stockRecord->qty;
+                $balanceAfter = $balanceBefore - $trxItem->base_qty;
+                
+                $stockRecord->update(['qty' => $balanceAfter]);
 
                 StockMovement::create([
                     'company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $product->id,
                     'type' => 'sale', 'reference_type' => Transaction::class, 'reference_id' => $transaction->id,
-                    'quantity' => $trxItem->base_qty, 'balance_before' => $balanceBefore, 'balance_after' => $balanceBefore - $trxItem->base_qty,
+                    'quantity' => $trxItem->base_qty, 'balance_before' => $balanceBefore, 'balance_after' => $balanceAfter,
                     'remarks' => 'Penjualan POS Nota: ' . $transaction->transaction_number,
                 ]);
             }

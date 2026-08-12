@@ -148,15 +148,26 @@ class ProductReportController extends Controller
             $cat->color = $colors[$i % count($colors)]; 
         }
 
-        // 5. PERFORMA PRODUK
+        // =========================================================
+        // 5. PERFORMA PRODUK (Stok Habis Membaca Langsung dari tabel `stocks`)
+        // =========================================================
         $perfNew = DB::table('products')->where('company_id', $tenantId)->whereBetween('created_at', [$startDate, $endDate])->count();
-        $perfOos = DB::table('stock_movements')
-            ->join(DB::raw('(SELECT product_id, MAX(created_at) as max_date FROM stock_movements GROUP BY product_id) as latest'), function($join) {
-                $join->on('stock_movements.product_id', '=', 'latest.product_id')
-                     ->on('stock_movements.created_at', '=', 'latest.max_date');
-            })
-            ->where('balance_after', '<=', 0)
-            ->count();
+        
+        $targetOutletId = $outletId ?? ($isOwner ? null : $user->outlet_id);
+        
+        $perfOosQuery = DB::table('stocks')
+            ->join('products', 'stocks.product_id', '=', 'products.id')
+            ->where('stocks.company_id', $tenantId)
+            ->where('products.item_type', 'goods')
+            ->select('stocks.product_id', DB::raw('SUM(stocks.qty) as total_qty'))
+            ->groupBy('stocks.product_id')
+            ->having('total_qty', '<=', 0);
+            
+        if ($targetOutletId) {
+            $perfOosQuery->where('stocks.outlet_id', $targetOutletId);
+        }
+        
+        $perfOos = $perfOosQuery->get()->count(); 
 
         // 6. ANALISIS PRODUK LENGKAP (TABEL BAWAH)
         // Ambil 50 produk teratas berdasarkan omset untuk ditampilkan di tabel analisis
@@ -199,7 +210,7 @@ class ProductReportController extends Controller
             'category_sales' => $categorySales,
             'performance' => [
                 'new' => $perfNew,
-                'oos' => $perfOos,
+                'oos' => $perfOos, // <-- Sudah dinamis & ringan dari tabel stocks!
                 'slow' => 0, // Placeholder
                 'repeat' => '0%' // Placeholder
             ],

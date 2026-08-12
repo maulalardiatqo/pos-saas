@@ -5,6 +5,7 @@ namespace App\Filament\Tenant\Resources\Transactions;
 use App\Filament\Tenant\Resources\Transactions\Pages;
 use App\Models\Transaction;
 use App\Models\StockMovement;
+use App\Models\Stock; // <-- IMPORT MODEL STOCK
 use App\Models\Account; 
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -129,9 +130,9 @@ class TransactionResource extends Resource
                     })
             ])
             ->actions([
-                ViewAction::make()->label('Detail'),
+                Tables\Actions\ViewAction::make()->label('Detail'),
                 
-                Action::make('void')
+                Tables\Actions\Action::make('void')
                     ->label('Void')
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
@@ -147,31 +148,61 @@ class TransactionResource extends Resource
                             // 1. Ubah status nota menjadi voided (cancelled)
                             $record->update(['status' => 'cancelled']);
 
-                            // 2. Kembalikan stok untuk barang fisik
+                            // 2. KEMBALIKAN STOK (MENGGUNAKAN TABEL STOCKS & LOCKING)
                             foreach ($record->items as $item) {
-                                $isService = ($item->product?->item_type ?? 'goods') === 'service';
-                                
-                                if (!$isService) {
-                                    // Jika bundle, Anda mungkin perlu melooping child components-nya (sesuaikan dengan logic di fulfillTransaction sebelumnya)
-                                    // Asumsi kode di bawah adalah untuk produk standar sesuai yang Anda berikan:
-                                    $lastMovement = \App\Models\StockMovement::where('product_id', $item->product_id)
-                                        ->where('outlet_id', $outletId)
-                                        ->latest()
-                                        ->first();
+                                $product = $item->product;
+                                if (!$product) continue;
 
-                                    $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
-                                    $balanceAfter = $balanceBefore + (float) $item->base_qty;
+                                $isService = ($product->item_type === 'service');
+                                $isBundle = in_array($product->product_type, ['bundle', 'recipe']);
 
-                                    \App\Models\StockMovement::create([
-                                        'company_id' => $companyId,
-                                        'outlet_id' => $outletId,
-                                        'product_id' => $item->product_id,
-                                        'type' => 'void', 
-                                        'reference_type' => Transaction::class,
-                                        'reference_id' => $record->id,
-                                        'quantity' => $item->base_qty,
-                                        'balance_before' => $balanceBefore,
-                                        'balance_after' => $balanceAfter,
+                                if ($isBundle) {
+                                    $components = DB::table('product_components')->where('parent_product_id', $product->id)->get();
+                                    foreach ($components as $comp) {
+                                        $child = DB::table('products')->where('id', $comp->child_product_id)->first();
+                                        
+                                        if ($child && $child->item_type === 'goods') {
+                                            $qtyToReturn = (float) $item->base_qty * (float) $comp->quantity;
+                                            
+                                            // Kunci & Kembalikan Stok Komponen
+                                            $stockRecord = Stock::firstOrCreate(
+                                                ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $comp->child_product_id],
+                                                ['qty' => 0]
+                                            );
+                                            $stockRecord->lockForUpdate();
+
+                                            $balanceBefore = (float) $stockRecord->qty;
+                                            $balanceAfter = $balanceBefore + $qtyToReturn;
+
+                                            $stockRecord->update(['qty' => $balanceAfter]);
+
+                                            StockMovement::create([
+                                                'company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $comp->child_product_id,
+                                                'type' => 'void', 'reference_type' => Transaction::class, 'reference_id' => $record->id,
+                                                'quantity' => $qtyToReturn, 'balance_before' => $balanceBefore, 'balance_after' => $balanceAfter,
+                                                'remarks' => 'VOID Nota POS (Paket/Bundle): ' . $record->transaction_number,
+                                            ]);
+                                        }
+                                    }
+                                } elseif (!$isService) {
+                                    $qtyToReturn = (float) $item->base_qty;
+
+                                    // Kunci & Kembalikan Stok Barang Biasa
+                                    $stockRecord = Stock::firstOrCreate(
+                                        ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $product->id],
+                                        ['qty' => 0]
+                                    );
+                                    $stockRecord->lockForUpdate();
+
+                                    $balanceBefore = (float) $stockRecord->qty;
+                                    $balanceAfter = $balanceBefore + $qtyToReturn;
+
+                                    $stockRecord->update(['qty' => $balanceAfter]);
+
+                                    StockMovement::create([
+                                        'company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $product->id,
+                                        'type' => 'void', 'reference_type' => Transaction::class, 'reference_id' => $record->id,
+                                        'quantity' => $qtyToReturn, 'balance_before' => $balanceBefore, 'balance_after' => $balanceAfter,
                                         'remarks' => 'VOID Nota POS: ' . $record->transaction_number,
                                     ]);
                                 }
@@ -200,7 +231,6 @@ class TransactionResource extends Resource
                                 if ($session && $session->status === 'open') {
                                     $session->decrement('total_sales', $record->grand_total);
                                     
-                                    // 🟢 PERBAIKAN: Hanya kurangi cash_sales jika transaksinya memang tunai (Cash)
                                     if ($record->payment_method === 'cash') {
                                         $session->decrement('total_cash_sales', $record->grand_total);
                                     }
@@ -213,9 +243,7 @@ class TransactionResource extends Resource
                             if ($record->account_id) {
                                 $account = \App\Models\Account::find($record->account_id);
                                 if ($account) {
-                                    // 🟢 PERBAIKAN: Tarik hanya sebesar "Uang Bersih" (Net Amount) yang dulu masuk!
                                     $netAmount = $record->grand_total - (float) $record->admin_fee;
-                                    
                                     $account->decrement('balance', $netAmount);
                                 }
                             }
@@ -327,6 +355,7 @@ class TransactionResource extends Resource
             ])
             ->columns(1); 
     }
+    
     public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
     {
         $query = parent::getEloquentQuery();
@@ -340,6 +369,7 @@ class TransactionResource extends Resource
 
         return $query;
     }
+    
     public static function getPages(): array
     {
         return [

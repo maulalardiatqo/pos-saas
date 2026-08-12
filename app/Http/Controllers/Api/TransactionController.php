@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
+use App\Models\StockMovement;
+use App\Models\Stock; // <-- IMPORT MODEL STOCK BARU KITA
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -80,27 +82,65 @@ class TransactionController extends Controller
                 // 1. Ubah status nota menjadi voided (cancelled)
                 $record->update(['status' => 'cancelled']);
 
-                // 2. Kembalikan stok untuk barang fisik
+                // 2. KEMBALIKAN STOK (MENGGUNAKAN TABEL STOCKS & PESSIMISTIC LOCKING)
                 foreach ($record->items as $item) {
-                    $isService = ($item->product?->item_type ?? 'goods') === 'service';
-                    
-                    if (!$isService) {
-                        $lastMovement = \App\Models\StockMovement::where('product_id', $item->product_id)
-                            ->where('outlet_id', $outletId)
-                            ->latest()
-                            ->first();
+                    $product = $item->product;
+                    if (!$product) continue;
 
-                        $balanceBefore = $lastMovement ? (float) $lastMovement->balance_after : 0.00;
-                        $balanceAfter = $balanceBefore + (float) $item->base_qty;
+                    $isService = ($product->item_type === 'service');
+                    $isBundle = in_array($product->product_type, ['bundle', 'recipe']);
 
-                        \App\Models\StockMovement::create([
+                    if ($isBundle) {
+                        $components = DB::table('product_components')->where('parent_product_id', $product->id)->get();
+                        foreach ($components as $comp) {
+                            $child = DB::table('products')->where('id', $comp->child_product_id)->first();
+                            
+                            if ($child && $child->item_type === 'goods') {
+                                $qtyToReturn = (float) $item->base_qty * (float) $comp->quantity;
+                                
+                                // Kunci & Kembalikan Stok Komponen
+                                $stockRecord = Stock::firstOrCreate(
+                                    ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $comp->child_product_id],
+                                    ['qty' => 0]
+                                );
+                                $stockRecord->lockForUpdate();
+
+                                $balanceBefore = (float) $stockRecord->qty;
+                                $balanceAfter = $balanceBefore + $qtyToReturn;
+
+                                $stockRecord->update(['qty' => $balanceAfter]);
+
+                                StockMovement::create([
+                                    'company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $comp->child_product_id,
+                                    'type' => 'void', 'reference_type' => Transaction::class, 'reference_id' => $record->id,
+                                    'quantity' => $qtyToReturn, 'balance_before' => $balanceBefore, 'balance_after' => $balanceAfter,
+                                    'remarks' => 'VOID Nota POS (Paket/Bundle): ' . $record->transaction_number,
+                                ]);
+                            }
+                        }
+                    } elseif (!$isService) {
+                        $qtyToReturn = (float) $item->base_qty;
+
+                        // Kunci & Kembalikan Stok Barang Biasa
+                        $stockRecord = Stock::firstOrCreate(
+                            ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $product->id],
+                            ['qty' => 0]
+                        );
+                        $stockRecord->lockForUpdate();
+
+                        $balanceBefore = (float) $stockRecord->qty;
+                        $balanceAfter = $balanceBefore + $qtyToReturn;
+
+                        $stockRecord->update(['qty' => $balanceAfter]);
+
+                        StockMovement::create([
                             'company_id' => $companyId,
                             'outlet_id' => $outletId,
-                            'product_id' => $item->product_id,
+                            'product_id' => $product->id,
                             'type' => 'void', 
                             'reference_type' => Transaction::class,
                             'reference_id' => $record->id,
-                            'quantity' => $item->base_qty,
+                            'quantity' => $qtyToReturn,
                             'balance_before' => $balanceBefore,
                             'balance_after' => $balanceAfter,
                             'remarks' => 'VOID Nota POS: ' . $record->transaction_number,
@@ -110,9 +150,8 @@ class TransactionController extends Controller
 
                 // 3. Tarik poin dari pelanggan
                 if ($record->customer_id) {
-                    // (Sesuaikan nilai pembagi poin dengan setting loyalty Anda, default fallback 10000)
                     $company = \App\Models\Company::find($companyId);
-                    $spendAmount = $company->loyalty_spend_amount > 0 ? $company->loyalty_spend_amount : 10000;
+                    $spendAmount = ($company && $company->loyalty_spend_amount > 0) ? $company->loyalty_spend_amount : 10000;
                     
                     $earnedPoints = floor($record->grand_total / $spendAmount); 
                     if ($earnedPoints > 0) {
@@ -128,6 +167,7 @@ class TransactionController extends Controller
                     }
                 }
                 
+                // 4. Potong omset kasir (Pos Session)
                 if ($record->pos_session_id) {
                     $session = \App\Models\PosSession::find($record->pos_session_id);
                     if ($session && $session->status === 'open') {
@@ -137,6 +177,8 @@ class TransactionController extends Controller
                         }
                     }
                 }
+
+                // 5. Potong saldo rekening
                 if ($record->account_id) {
                     $account = \App\Models\Account::find($record->account_id);
                     if ($account) {

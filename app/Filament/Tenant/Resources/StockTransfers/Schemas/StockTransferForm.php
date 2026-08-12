@@ -3,7 +3,7 @@
 namespace App\Filament\Tenant\Resources\StockTransfers\Schemas;
 
 use App\Models\StockTransfer;
-use App\Models\StockMovement;
+use App\Models\Stock; // <-- IMPORT MODEL STOCK BARU KITA
 use Filament\Schemas\Schema;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Grid;
@@ -24,10 +24,10 @@ class StockTransferForm
     public static function configure(Schema $schema): Schema
     {
         return $schema
-            ->columns(1) // <-- MENGUBAH LAYOUT UTAMA MENJADI 1 KOLOM (ATAS-BAWAH)
+            ->columns(1)
             ->components([
                 Section::make('Informasi Surat Jalan / Mutasi')
-                    ->columnSpanFull() // <-- MEMAKSA KOTAK FULL WIDTH
+                    ->columnSpanFull()
                     ->schema([
                         Grid::make(3)->schema([
                             TextInput::make('reference_number')
@@ -85,7 +85,7 @@ class StockTransferForm
                     ]),
 
                 Section::make('Daftar Barang yang Dipindah')
-                    ->columnSpanFull() // <-- MEMAKSA KOTAK FULL WIDTH
+                    ->columnSpanFull()
                     ->description(fn (Get $get) => $get('from_outlet_id') == null ? 'Pilih Gudang Asal terlebih dahulu sebelum memilih barang.' : 'Pastikan jumlah tidak melebihi stok gudang asal.')
                     ->schema([
                         Repeater::make('items')
@@ -104,12 +104,12 @@ class StockTransferForm
                                             $fromOutletId = $get('../../from_outlet_id');
 
                                             if ($state && $fromOutletId) {
-                                                $lastStock = StockMovement::where('product_id', $state)
+                                                // PERBAIKAN: Gunakan Tabel Stocks untuk mengecek ketersediaan
+                                                $stockRecord = Stock::where('product_id', $state)
                                                     ->where('outlet_id', $fromOutletId)
-                                                    ->latest()
                                                     ->first();
 
-                                                $stock = $lastStock ? $lastStock->balance_after : 0;
+                                                $stock = $stockRecord ? (float) $stockRecord->qty : 0;
                                                 $set('available_stock', $stock);
                                             } else {
                                                 $set('available_stock', 0);
@@ -127,11 +127,11 @@ class StockTransferForm
                                         ->required()
                                         ->minValue(1)
                                         ->hint(fn (Get $get) => 'Stok di Gudang Asal: ' . ($get('available_stock') ?? 0))
-                                        ->hintColor(fn (Get $get) => ((int) $get('available_stock') > 0) ? 'success' : 'danger')
+                                        ->hintColor(fn (Get $get) => ((float) $get('available_stock') > 0) ? 'success' : 'danger')
                                         ->rules([
                                             fn (Get $get): Closure => function (string $attribute, $value, Closure $fail) use ($get) {
-                                                $available = (int) $get('available_stock');
-                                                if ((int) $value > $available) {
+                                                $available = (float) $get('available_stock');
+                                                if ((float) $value > $available) {
                                                     $fail("Kuantitas melebihi sisa stok di Gudang Asal (Maks: {$available}).");
                                                 }
                                             },

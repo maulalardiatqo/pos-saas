@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\Outlet;
-use App\Models\StockMovement;
+use App\Models\Stock; // <-- IMPORT MODEL STOCK BARU KITA
 use Illuminate\Http\Request;
 
 class StockBalanceController extends Controller
@@ -44,11 +44,12 @@ class StockBalanceController extends Controller
             ]);
         }
 
-        // 2. Subquery Saldo Stok Terakhir (Persis seperti Filament Anda)
-        $latestStockSubquery = StockMovement::select('balance_after')
+        // =====================================================================
+        // 2. PERBAIKAN STOK: Membaca langsung dari tabel stocks (Super Ringan)
+        // =====================================================================
+        $latestStockSubquery = Stock::selectRaw('COALESCE(qty, 0)')
             ->whereColumn('product_id', 'products.id')
             ->where('outlet_id', $targetOutletId)
-            ->latest('created_at')
             ->limit(1);
 
         // 3. Ambil Produk (hanya barang fisik / goods)

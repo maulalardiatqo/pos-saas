@@ -138,7 +138,6 @@ class ListProductReports extends ListRecords
             $cursor->addDay();
         }
 
-        // TOP 10 & KATEGORI
         $topProducts = (clone $currentQuery)
             ->select('products.name', 'products.image_url', DB::raw('SUM(transaction_items.qty) as total_qty'), DB::raw('SUM(transaction_items.subtotal) as total_sales'))
             ->groupBy('products.id', 'products.name', 'products.image_url')
@@ -161,6 +160,28 @@ class ListProductReports extends ListRecords
         $colors = ['#3B82F6', '#22C55E', '#F59E0B', '#A855F7', '#94A3B8', '#EF4444', '#14B8A6'];
         foreach ($categorySales as $i => $cat) { $cat->color = $colors[$i % count($colors)]; }
 
+        // =========================================================
+        // MENGHITUNG PERFORMA PRODUK (PRODUK BARU & STOK HABIS)
+        // =========================================================
+        $perfNew = DB::table('products')->where('company_id', $tenantId)->whereBetween('created_at', [$start, $end])->count();
+        
+        // Hitung berapa banyak barang fisik (goods) yang stoknya 0 atau kurang (Habis)
+        $targetOutletId = $this->outletId ?? ($isOwner ? null : $user->outlet_id);
+        
+        $perfOosQuery = DB::table('stocks')
+            ->join('products', 'stocks.product_id', '=', 'products.id')
+            ->where('stocks.company_id', $tenantId)
+            ->where('products.item_type', 'goods')
+            ->select('stocks.product_id', DB::raw('SUM(stocks.qty) as total_qty'))
+            ->groupBy('stocks.product_id')
+            ->having('total_qty', '<=', 0);
+            
+        if ($targetOutletId) {
+            $perfOosQuery->where('stocks.outlet_id', $targetOutletId);
+        }
+        
+        $perfOos = $perfOosQuery->get()->count(); 
+
         return [
             'outlets' => $outlets, 'categories' => $categories, 'brands' => $brands,
             'qtySold' => $qtySold, 'qtyChange' => $pctChange($qtySold, $prevQty),
@@ -172,12 +193,12 @@ class ListProductReports extends ListRecords
             'topProducts' => $topProducts,
             'categorySales' => $categorySales,
             
-            // Variabel Chart
             'sparklineLabels' => $sparklineLabels,
             'sparkData' => $sparkData,
 
-            'perfNew' => DB::table('products')->where('company_id', $tenantId)->whereBetween('created_at', [$start, $end])->count(),
-            'perfOos' => 0, 'perfSlow' => 0,
+            'perfNew' => $perfNew,
+            'perfOos' => $perfOos, 
+            'perfSlow' => 0,
         ];
     }
 }

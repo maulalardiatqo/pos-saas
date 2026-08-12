@@ -22,10 +22,12 @@ class StockBalanceResource extends Resource
     protected static ?string $slug = 'stock-balances';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
+    
     public static function getNavigationGroup(): ?string
     {
         return 'Inventori & Stok';
     }
+    
     protected static ?string $navigationLabel = 'Saldo Stok';
     protected static ?string $pluralLabel = 'Daftar Saldo Stok';
 
@@ -57,18 +59,10 @@ class StockBalanceResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()
+        // KITA BERSIHKAN SUBQUERY LAMA DARI SINI
+        // Karena logic pemanggilan stok per cabang/outlet sudah diurus di file Table
+        return parent::getEloquentQuery()
             ->withoutGlobalScopes([ SoftDeletingScope::class ])
             ->where('item_type', 'goods');
-
-        $outletId = auth()->user()->outlet_id ?? \App\Models\Outlet::where('company_id', filament()->getTenant()->id)->value('id');
-
-        $latestStockSubquery = \App\Models\StockMovement::select('balance_after')
-            ->whereColumn('product_id', 'products.id')
-            ->where('outlet_id', $outletId)
-            ->latest('created_at')
-            ->limit(1);
-
-        return $query->addSelect('products.*')->selectSub($latestStockSubquery, 'current_stock');
     }
 }

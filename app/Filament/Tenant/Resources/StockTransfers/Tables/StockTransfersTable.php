@@ -6,7 +6,13 @@ use App\Models\StockTransfer;
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Notifications\Notification;
-use Filament\Actions\Action;
+use Filament\Actions\Action; 
+use Filament\Actions\ViewAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Observers\StockTransferObserver; 
 
 class StockTransfersTable
 {
@@ -55,6 +61,7 @@ class StockTransfersTable
             ->filters([
             ])
             ->actions([
+                // TOMBOL SELESAIKAN YANG SUDAH DI-UPDATE
                 Action::make('complete')
                     ->label('Selesaikan')
                     ->icon('heroicon-o-check-circle')
@@ -64,21 +71,28 @@ class StockTransfersTable
                     ->modalDescription('Apakah Anda yakin? Tindakan ini akan memotong stok di lokasi asal dan menambahkannya ke lokasi tujuan secara permanen. Anda tidak bisa mengedit dokumen ini lagi.')
                     ->hidden(fn (StockTransfer $record) => $record->status === 'completed') 
                     ->action(function (StockTransfer $record) {
-                        $record->markAsCompleted();
+                        // 1. Update status
+                        $record->update(['status' => 'completed']);
+
+                        // 2. Eksekusi perpindahan stok yang sebenarnya ke tabel `stocks`
+                        $observer = new StockTransferObserver();
+                        $observer->processStockMovements($record);
+
+                        // 3. Munculkan Notifikasi
                         Notification::make()
                             ->title('Mutasi Berhasil!')
-                            ->body('Stok telah dipindahkan.')
+                            ->body('Stok telah berhasil dipindahkan.')
                             ->success()
                             ->send();
                     }),
 
-                \Filament\Actions\ViewAction::make(),
-                \Filament\Actions\EditAction::make(),
-                \Filament\Actions\DeleteAction::make(),
+                ViewAction::make(),
+                EditAction::make(),
+                DeleteAction::make(),
             ])
             ->bulkActions([
-                \Filament\Actions\BulkActionGroup::make([
-                    \Filament\Actions\DeleteBulkAction::make(),
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ])
             ->defaultSort('created_at', 'desc');
