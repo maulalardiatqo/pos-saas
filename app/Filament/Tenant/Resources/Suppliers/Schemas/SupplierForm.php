@@ -9,11 +9,16 @@ use Filament\Schemas\Components\Grid;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Select; 
+use Filament\Forms\Components\Hidden; 
 
 class SupplierForm
 {
     public static function configure(Schema $schema): Schema
     {
+        $user = auth()->user();
+        $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
+
         return $schema
             ->components([
                 Grid::make(3)->schema([
@@ -37,6 +42,20 @@ class SupplierForm
                                         ->required()
                                         ->maxLength(150)
                                         ->placeholder('Contoh: PT. ABC Indonesia'),
+                                        
+                                    // INPUT OUTLET (Tampil untuk Owner, tersembunyi untuk staf)
+                                    Select::make('outlet_id')
+                                        ->label('Lokasi Outlet / Cabang')
+                                        ->relationship('outlet', 'name')
+                                        ->helperText('Kosongkan jika supplier ini menyuplai barang ke semua cabang (Global).')
+                                        ->searchable()
+                                        ->preload()
+                                        ->visible($isOwnerOrPlatform),
+
+                                    // INPUT HIDDEN OUTLET (Otomatis terisi jika yang login adalah staf)
+                                    Hidden::make('outlet_id')
+                                        ->default(fn () => !$isOwnerOrPlatform ? $user->outlet_id : null)
+                                        ->visible(!$isOwnerOrPlatform),
                                 ]),
 
                                 Textarea::make('address')

@@ -4,6 +4,7 @@ namespace App\Filament\Tenant\Resources\Customers\Tables;
 
 use Filament\Tables\Table;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter; 
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -29,6 +30,14 @@ class CustomersTable
                     ->sortable()
                     ->weight('bold'),
 
+                // KOLOM OUTLET (Hanya terlihat jika Owner/Platform)
+                TextColumn::make('outlet.name')
+                    ->label('Outlet')
+                    ->badge()
+                    ->color('info')
+                    ->default('Global / Semua Cabang')
+                    ->visible(fn () => auth()->user()->isOwner() || auth()->user()->isPlatform()),
+
                 TextColumn::make('phone')
                     ->label('Telepon')
                     ->searchable()
@@ -38,7 +47,7 @@ class CustomersTable
                 TextColumn::make('membership.name')
                     ->label('Level Membership')
                     ->badge()
-                    ->color('warning') // Warna emas/kuning elegan untuk status membership
+                    ->color('warning') 
                     ->sortable()
                     ->placeholder('-')
                     ->toggleable()
@@ -60,6 +69,11 @@ class CustomersTable
                     }),
             ])
             ->filters([
+                // FILTER OUTLET (Hanya tersedia untuk Owner/Platform)
+                SelectFilter::make('outlet_id')
+                    ->label('Filter Outlet')
+                    ->relationship('outlet', 'name')
+                    ->visible(fn () => auth()->user()->isOwner() || auth()->user()->isPlatform()),
             ])
             ->actions([
                 EditAction::make(),

@@ -7,6 +7,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Hidden; 
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -15,6 +16,9 @@ class CustomerForm
 {
     public static function configure(Schema $schema): Schema
     {
+        $user = auth()->user();
+        $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
+
         return $schema
             ->components([
 
@@ -48,6 +52,20 @@ class CustomerForm
                             ->label('Nama Lengkap')
                             ->required()
                             ->maxLength(150),
+
+                        // INPUT OUTLET (Tampil untuk Owner, tersembunyi untuk staf)
+                        Select::make('outlet_id')
+                            ->label('Pilih Outlet / Cabang')
+                            ->relationship('outlet', 'name')
+                            ->helperText('Kosongkan jika pelanggan ini bisa berbelanja di semua cabang (Global).')
+                            ->searchable()
+                            ->preload()
+                            ->visible($isOwnerOrPlatform),
+
+                        // INPUT HIDDEN OUTLET (Otomatis terisi jika yang login adalah staf)
+                        Hidden::make('outlet_id')
+                            ->default(fn () => !$isOwnerOrPlatform ? $user->outlet_id : null)
+                            ->visible(!$isOwnerOrPlatform),
 
                         TextInput::make('phone')
                             ->label('Nomor Telepon')
