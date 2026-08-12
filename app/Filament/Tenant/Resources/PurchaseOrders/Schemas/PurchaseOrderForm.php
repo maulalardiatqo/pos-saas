@@ -76,6 +76,8 @@ class PurchaseOrderForm
                                 ->dehydrated() 
                                 ->searchable()
                                 ->preload()
+                                ->live() // Trigger perubahan agar account_id ikut ter-refresh
+                                ->afterStateUpdated(fn (Set $set) => $set('account_id', null))
                                 ->required(),
                         ])->columns(1),
 
@@ -129,13 +131,24 @@ class PurchaseOrderForm
                                     'ewallet'     => 'E-Wallet',
                                 ])
                                 ->default('cash')
+                                ->live() // Trigger perubahan agar account_id ikut ter-refresh
+                                ->afterStateUpdated(fn (Set $set) => $set('account_id', null))
                                 ->required(),
 
-                            // AKUN KEUANGAN / SUMBER DANA (Filtered by Outlet for Non-Owners)
+                            // AKUN KEUANGAN / SUMBER DANA (Filtered by Outlet & Payment Method)
                             Select::make('account_id')
                                 ->label('Sumber Dana (Rekening/Kas)')
-                                ->relationship('account', 'name', function (Builder $query) use ($user, $isOwnerOrPlatform) {
-                                    $query->where('is_active', true);
+                                ->options(function (Get $get) use ($user, $isOwnerOrPlatform) {
+                                    $outletId = $get('outlet_id');
+                                    $paymentMethod = $get('payment_method');
+                                    
+                                    // Jika metode pembayaran atau outlet belum dipilih, kosongkan list account
+                                    if (!$paymentMethod || !$outletId) {
+                                        return [];
+                                    }
+
+                                    $query = \App\Models\Account::where('is_active', true)
+                                        ->whereJsonContains('payment_methods', $paymentMethod);
 
                                     // Jika bukan Owner/Platform, hanya tampilkan akun milik outlet user ATAU akun Global
                                     if (!$isOwnerOrPlatform) {
@@ -143,12 +156,17 @@ class PurchaseOrderForm
                                             $q->whereNull('outlet_id')
                                               ->orWhere('outlet_id', $user?->outlet_id);
                                         });
+                                    } else {
+                                        // Jika Owner, filter berdasarkan outlet_id dari dropdown
+                                        $query->where(function ($q) use ($outletId) {
+                                            $q->whereNull('outlet_id')
+                                              ->orWhere('outlet_id', $outletId);
+                                        });
                                     }
 
-                                    return $query;
+                                    return $query->pluck('name', 'id');
                                 })
                                 ->searchable()
-                                ->preload()
                                 ->required(),
                         ])->columns(1),
                     ])
