@@ -19,8 +19,7 @@ class ExpenseController extends Controller
             ->where('company_id', $companyId)
             ->where('type', 'expense');
 
-        // Filter Akses: Karyawan hanya melihat pengeluaran outlet-nya
-        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
+        $isOwner = $user->isPlatform() ?? false;
         if (!$isOwner && $user->outlet_id) {
             $query->where('outlet_id', $user->outlet_id);
         }

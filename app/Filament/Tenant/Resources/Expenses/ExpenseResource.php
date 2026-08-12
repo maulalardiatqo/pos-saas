@@ -23,7 +23,6 @@ use Filament\Actions\BulkActionGroup;
 
 class ExpenseResource extends Resource
 {
-    // ... (Properti resource, model, navigationGroup, dan form() dibiarkan SAMA PERSIS seperti milik Anda) ...
     protected static ?string $model = Transaction::class;
 
     protected static ?string $modelLabel = 'Pengeluaran (Expense)';

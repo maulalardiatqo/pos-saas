@@ -18,7 +18,7 @@ class RevenueController extends Controller
         $query = Transaction::with(['account:id,name', 'outlet:id,name'])
             ->where('company_id', $companyId)
             ->where('type', 'revenue');
-        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
+        $isOwner = $user->isPlatform() ?? false;
         if (!$isOwner && $user->outlet_id) {
             $query->where('outlet_id', $user->outlet_id);
         }
