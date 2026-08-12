@@ -23,7 +23,6 @@ class StockMovementsTable
                     ->searchable()
                     ->weight('bold'),
 
-                // KOLOM OUTLET: Hanya dimunculkan untuk Owner/Platform
                 TextColumn::make('outlet.name')
                     ->label('Cabang')
                     ->searchable()

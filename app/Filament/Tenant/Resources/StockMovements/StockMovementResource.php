@@ -7,6 +7,7 @@ use Filament\Resources\Resource;
 use Filament\Facades\Filament;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder; // <-- Tambahan wajib untuk getEloquentQuery
 
 use App\Filament\Tenant\Resources\StockMovements\Tables\StockMovementsTable;
 use App\Filament\Tenant\Resources\StockMovements\Pages\ListStockMovements;
@@ -34,6 +35,28 @@ class StockMovementResource extends Resource
 
     /*
     |--------------------------------------------------------------------------
+    | Keamanan & Filter Data (Multi-Outlet)
+    |--------------------------------------------------------------------------
+    */
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+
+        // Jika user BUKAN Owner dan BUKAN Platform, 
+        // paksa query hanya mengambil riwayat stok dari outlet tempat ia bekerja
+        if ($user && !$user->isOwner() && !$user->isPlatform()) {
+            $query->where('outlet_id', $user->outlet_id);
+        }
+
+        return $query;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Keamanan: Mode Read-Only Total
     |--------------------------------------------------------------------------
     */
@@ -50,7 +73,7 @@ class StockMovementResource extends Resource
         }
 
         $user = auth()->user();
-        return $user && $user->hasPermission('inventory.history');
+        return $user && ($user->isOwner() || $user->hasPermission('inventory.history'));
     }
 
     // Kunci MATI fungsi Create, Edit, dan Delete untuk semua orang tanpa terkecuali
