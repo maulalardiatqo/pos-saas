@@ -98,28 +98,25 @@ class OpeningBalanceResource extends Resource
                             ->required(),
 
                         Select::make('account_id')
-                            ->relationship(
-                                name: 'account', 
-                                titleAttribute: 'name', 
-                                modifyQueryUsing: function (Builder $query, Get $get) {
-                                    $outletId = $get('outlet_id');
-                                    
-                                    // Jika outlet belum dipilih, jangan tampilkan akun apapun
-                                    if (!$outletId) {
-                                        return $query->whereRaw('1 = 0');
-                                    }
-
-                                    // Tampilkan akun yang aktif, dan bersifat Global (null) ATAU milik cabang tersebut
-                                    return $query->where('is_active', true)
-                                        ->where(function ($q) use ($outletId) {
-                                            $q->whereNull('outlet_id')
-                                              ->orWhere('outlet_id', $outletId);
-                                        });
-                                }
-                            )
                             ->label('Simpan ke Rekening / Kas')
+                            ->options(function (Get $get) {
+                                $outletId = $get('outlet_id');
+                                
+                                // Jika outlet belum dipilih, kembalikan array kosong
+                                if (!$outletId) {
+                                    return [];
+                                }
+
+                                // Ambil akun yang aktif dan sesuai cabang (atau global)
+                                return \App\Models\Account::where('is_active', true)
+                                    ->where(function ($q) use ($outletId) {
+                                        $q->whereNull('outlet_id')
+                                          ->orWhere('outlet_id', $outletId);
+                                    })
+                                    ->pluck('name', 'id');
+                            })
                             ->searchable()
-                            // ->preload() // <-- INI WAJIB DIHAPUS agar query dinamisnya dieksekusi via AJAX!
+                            ->preload() 
                             ->required(),
 
                         TextInput::make('amount_paid')
