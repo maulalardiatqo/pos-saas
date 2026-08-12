@@ -143,7 +143,9 @@ class ProductForm
                     ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.multi_uom') === true)
                     ->schema([
                         Repeater::make('productUoms')
-                            ->relationship()
+                            ->relationship(
+                                modifyQueryUsing: fn (\Illuminate\Database\Eloquent\Builder $query) => $query->where('is_default', false)->orWhereNull('is_default')
+                            )
                             ->hiddenLabel()
                             ->addActionLabel('Tambah Satuan Khusus')
                             ->columnSpanFull()
@@ -155,6 +157,7 @@ class ProductForm
                                             name: 'uom', 
                                             titleAttribute: 'name',
                                             modifyQueryUsing: function (\Illuminate\Database\Eloquent\Builder $query, Get $get) {
+                                                // Mencegah Satuan Dasar dipilih lagi di sini
                                                 $baseUom = $get('../../base_uom_id');
                                                 if ($baseUom) {
                                                     $query->where('id', '!=', $baseUom);
@@ -173,12 +176,13 @@ class ProductForm
                                         ->default(1)
                                         ->rules(['gt:1']) 
                                         ->validationMessages([
-                                            'gt' => 'Isi konversi harus LEBIH BESAR DARI 1. (Karena Satuan Dasar adalah yang terkecil)',
+                                            'gt' => 'Isi konversi harus LEBIH BESAR DARI 1.',
                                         ])
                                         ->helperText('Contoh: Jika 1 Dus = 12 Pcs, isi 12.')
                                         ->live(onBlur: true),
+
                                     TextInput::make('selling_price')
-                                        ->label('Harga Jual')
+                                        ->label('Harga Jual Khusus')
                                         ->prefix('Rp')
                                         ->mask(RawJs::make('$money($input, \',\', \'.\', 0)'))
                                         ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
@@ -204,10 +208,6 @@ class ProductForm
                                         ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.barcode') === true),
                                 ]),
 
-                                Toggle::make('is_default')
-                                    ->label('Default POS')
-                                    ->inline(false)
-                                    ->default(false),
                             ])
                     ]),
 
