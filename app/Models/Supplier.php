@@ -16,8 +16,20 @@ class Supplier extends Model
         'is_active' => 'boolean',
     ];
 
+    /*
+    |--------------------------------------------------------------------------
+    | Relationships
+    |--------------------------------------------------------------------------
+    */
+
     public function company()
     {
         return $this->belongsTo(Company::class);
+    }
+
+    // RELASI BARU KE OUTLET
+    public function outlet()
+    {
+        return $this->belongsTo(Outlet::class);
     }
 }

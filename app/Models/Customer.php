@@ -13,6 +13,7 @@ class Customer extends Model
     use HasUlids, SoftDeletes;
 
     protected $guarded = ['id'];
+    
     protected $casts = [
         'points_balance'  => 'integer',
         'lifetime_points' => 'integer',
@@ -20,6 +21,7 @@ class Customer extends Model
         'is_member' => 'boolean',
         'points'    => 'integer',
     ];
+    
     protected static function booted()
     {
         static::creating(function ($model) {
@@ -38,6 +40,12 @@ class Customer extends Model
     public function company()
     {
         return $this->belongsTo(Company::class);
+    }
+
+    // RELASI BARU KE OUTLET
+    public function outlet()
+    {
+        return $this->belongsTo(Outlet::class);
     }
 
     public function membership()
