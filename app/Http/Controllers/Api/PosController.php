@@ -30,6 +30,8 @@ class PosController extends Controller
         $company = $user->company ?? $user->tenant ?? $user->outlet->company ?? null;
         $tenantId = $company?->id;
         $outletId = $user->outlet_id;
+        
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
 
         // PERBAIKAN STOK: Membaca langsung dari tabel stocks (Lebih Ringan)
         $latestStockSubquery = Stock::selectRaw('COALESCE(qty, 0)')
@@ -93,14 +95,21 @@ class PosController extends Controller
 
         $categories = Category::where('company_id', $tenantId)->get(['id', 'name']);
         
-        $customers = Customer::with('membership')->where('company_id', $tenantId)->get()->map(function($c) {
+        // PERBAIKAN: Memfilter Pelanggan berdasarkan outlet (Jika bukan Owner)
+        $customerQuery = Customer::with('membership')->where('company_id', $tenantId)->where('is_active', 1);
+        if (!$isOwner) {
+            $customerQuery->where(function ($q) use ($outletId) {
+                $q->whereNull('outlet_id')->orWhere('outlet_id', $outletId);
+            });
+        }
+        $customers = $customerQuery->get()->map(function($c) {
             return [
                 'id' => $c->id, 'name' => $c->name,
                 'member' => $c->membership->name ?? '-', 'points' => $c->points_balance ?? 0,
             ];
         });
 
-       $accounts = Account::with('outlet:id,name')
+        $accounts = Account::with('outlet:id,name')
             ->where('company_id', $tenantId)
             ->where('is_active', true)
             ->where(function ($q) use ($outletId) {

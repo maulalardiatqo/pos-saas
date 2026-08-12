@@ -13,9 +13,6 @@ class MasterDataController extends Controller
     /**
      * Helper Keamanan: Validasi Lapis Ganda (Feature & Role Permission)
      */
-    /**
-     * Helper Keamanan: Validasi Lapis Ganda (Feature & Role Permission)
-     */
     private function checkAccess($user, $permissionCode)
     {
         $company = $user->company ?? $user->tenant;
@@ -27,9 +24,9 @@ class MasterDataController extends Controller
         $parts = explode('.', $permissionCode);
         $featureKey = $parts[1] ?? $parts[0]; 
         
-        // Jika action CRUD standar (view, create, edit, delete), kita ambil modul utamanya
+        // Jika action CRUD standar (view, create, edit, delete, manage), kita ambil modul utamanya
         // Contoh: 'products.view' akan menggunakan key fitur 'products'
-        if (in_array($featureKey, ['view', 'create', 'edit', 'delete'])) {
+        if (in_array($featureKey, ['view', 'create', 'edit', 'delete', 'manage'])) {
             $featureKey = $parts[0]; 
         }
 
@@ -508,11 +505,18 @@ class MasterDataController extends Controller
     public function getSuppliers(Request $request)
     {
         $user = $request->user();
-        $companyId = $user->company_id ?? $user->tenant_id ?? $user->company->id;
+        $companyId = $this->checkAccess($user, 'suppliers.view');
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
 
-        $suppliers = \App\Models\Supplier::where('company_id', $companyId)
-            ->orderBy('name')
-            ->get();
+        $query = \App\Models\Supplier::with('outlet:id,name')->where('company_id', $companyId);
+        
+        if (!$isOwner) {
+            $query->where(function ($q) use ($user) {
+                $q->whereNull('outlet_id')->orWhere('outlet_id', $user->outlet_id);
+            });
+        }
+
+        $suppliers = $query->orderBy('name')->get();
 
         return response()->json(['success' => true, 'data' => $suppliers]);
     }
@@ -520,7 +524,8 @@ class MasterDataController extends Controller
     public function storeSupplier(Request $request)
     {
         $user = $request->user();
-        $companyId = $user->company_id ?? $user->tenant_id ?? $user->company->id;
+        $companyId = $this->checkAccess($user, 'suppliers.manage');
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
 
         $request->validate([
             'name'      => 'required|string|max:255',
@@ -528,13 +533,15 @@ class MasterDataController extends Controller
             'email'     => 'nullable|email|max:100',
             'address'   => 'nullable|string',
             'is_active' => 'boolean',
+            'outlet_id' => 'nullable|string|exists:outlets,id',
         ]);
+
+        $outletId = $isOwner ? $request->outlet_id : $user->outlet_id;
 
         $supplier = \App\Models\Supplier::create([
             'company_id' => $companyId,
-            // --- GENERATE KODE OTOMATIS ---
+            'outlet_id'  => $outletId,
             'code'       => 'SUP-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(2))),
-            // ------------------------------
             'name'       => $request->name,
             'phone'      => $request->phone,
             'email'      => $request->email,
@@ -548,9 +555,16 @@ class MasterDataController extends Controller
     public function updateSupplier(Request $request, $id)
     {
         $user = $request->user();
-        $companyId = $user->company_id ?? $user->tenant_id ?? $user->company->id;
+        $companyId = $this->checkAccess($user, 'suppliers.manage');
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
 
-        $supplier = \App\Models\Supplier::where('company_id', $companyId)->findOrFail($id);
+        $query = \App\Models\Supplier::where('company_id', $companyId);
+        if (!$isOwner) {
+            $query->where(function ($q) use ($user) {
+                $q->whereNull('outlet_id')->orWhere('outlet_id', $user->outlet_id);
+            });
+        }
+        $supplier = $query->findOrFail($id);
 
         $request->validate([
             'name'      => 'required|string|max:255',
@@ -558,14 +572,18 @@ class MasterDataController extends Controller
             'email'     => 'nullable|email|max:100',
             'address'   => 'nullable|string',
             'is_active' => 'boolean',
+            'outlet_id' => 'nullable|string|exists:outlets,id',
         ]);
 
+        $outletId = $isOwner ? $request->outlet_id : $supplier->outlet_id;
+
         $supplier->update([
-            'name'      => $request->name,
-            'phone'     => $request->phone,
-            'email'     => $request->email,
-            'address'   => $request->address,
-            'is_active' => $request->is_active ?? true,
+            'outlet_id'  => $outletId,
+            'name'       => $request->name,
+            'phone'      => $request->phone,
+            'email'      => $request->email,
+            'address'    => $request->address,
+            'is_active'  => $request->is_active ?? true,
         ]);
 
         return response()->json(['success' => true, 'message' => 'Supplier berhasil diperbarui.', 'data' => $supplier]);
@@ -574,9 +592,16 @@ class MasterDataController extends Controller
     public function deleteSupplier(Request $request, $id)
     {
         $user = $request->user();
-        $companyId = $user->company_id ?? $user->tenant_id ?? $user->company->id;
+        $companyId = $this->checkAccess($user, 'suppliers.manage');
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
         
-        $supplier = \App\Models\Supplier::where('company_id', $companyId)->findOrFail($id);
+        $query = \App\Models\Supplier::where('company_id', $companyId);
+        if (!$isOwner) {
+            $query->where(function ($q) use ($user) {
+                $q->whereNull('outlet_id')->orWhere('outlet_id', $user->outlet_id);
+            });
+        }
+        $supplier = $query->findOrFail($id);
 
         // Pengecekan Relasi: Pastikan Supplier belum dipakai di transaksi PO (Purchase Order)
         $isUsed = DB::table('transactions')
@@ -599,11 +624,18 @@ class MasterDataController extends Controller
     public function getCustomers(Request $request)
     {
         $user = $request->user();
-        $companyId = $user->company_id ?? $user->tenant_id ?? $user->company->id;
+        $companyId = $this->checkAccess($user, 'customers.view');
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
 
-        $customers = \App\Models\Customer::where('company_id', $companyId)
-            ->orderBy('name')
-            ->get();
+        $query = \App\Models\Customer::with('outlet:id,name')->where('company_id', $companyId);
+        
+        if (!$isOwner) {
+            $query->where(function ($q) use ($user) {
+                $q->whereNull('outlet_id')->orWhere('outlet_id', $user->outlet_id);
+            });
+        }
+
+        $customers = $query->orderBy('name')->get();
 
         return response()->json(['success' => true, 'data' => $customers]);
     }
@@ -611,7 +643,8 @@ class MasterDataController extends Controller
     public function storeCustomer(Request $request)
     {
         $user = $request->user();
-        $companyId = $user->company_id ?? $user->tenant_id ?? $user->company->id;
+        $companyId = $this->checkAccess($user, 'customers.create');
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
 
         $request->validate([
             'name'      => 'required|string|max:255',
@@ -619,10 +652,14 @@ class MasterDataController extends Controller
             'email'     => 'nullable|email|max:100',
             'address'   => 'nullable|string',
             'is_active' => 'boolean',
+            'outlet_id' => 'nullable|string|exists:outlets,id',
         ]);
+
+        $outletId = $isOwner ? $request->outlet_id : $user->outlet_id;
 
         $customer = \App\Models\Customer::create([
             'company_id' => $companyId,
+            'outlet_id'  => $outletId,
             'code'       => 'CUS-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(2))),
             'name'       => $request->name,
             'phone'      => $request->phone,
@@ -637,9 +674,16 @@ class MasterDataController extends Controller
     public function updateCustomer(Request $request, $id)
     {
         $user = $request->user();
-        $companyId = $user->company_id ?? $user->tenant_id ?? $user->company->id;
+        $companyId = $this->checkAccess($user, 'customers.edit');
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
 
-        $customer = \App\Models\Customer::where('company_id', $companyId)->findOrFail($id);
+        $query = \App\Models\Customer::where('company_id', $companyId);
+        if (!$isOwner) {
+            $query->where(function ($q) use ($user) {
+                $q->whereNull('outlet_id')->orWhere('outlet_id', $user->outlet_id);
+            });
+        }
+        $customer = $query->findOrFail($id);
 
         $request->validate([
             'name'      => 'required|string|max:255',
@@ -647,14 +691,18 @@ class MasterDataController extends Controller
             'email'     => 'nullable|email|max:100',
             'address'   => 'nullable|string',
             'is_active' => 'boolean',
+            'outlet_id' => 'nullable|string|exists:outlets,id',
         ]);
 
+        $outletId = $isOwner ? $request->outlet_id : $customer->outlet_id;
+
         $customer->update([
-            'name'      => $request->name,
-            'phone'     => $request->phone,
-            'email'     => $request->email,
-            'address'   => $request->address,
-            'is_active' => $request->is_active ?? true,
+            'outlet_id'  => $outletId,
+            'name'       => $request->name,
+            'phone'      => $request->phone,
+            'email'      => $request->email,
+            'address'    => $request->address,
+            'is_active'  => $request->is_active ?? true,
         ]);
 
         return response()->json(['success' => true, 'message' => 'Pelanggan berhasil diperbarui.', 'data' => $customer]);
@@ -663,9 +711,16 @@ class MasterDataController extends Controller
     public function deleteCustomer(Request $request, $id)
     {
         $user = $request->user();
-        $companyId = $user->company_id ?? $user->tenant_id ?? $user->company->id;
+        $companyId = $this->checkAccess($user, 'customers.delete');
+        $isOwner = $user->isOwner() ?? $user->isPlatform() ?? false;
         
-        $customer = \App\Models\Customer::where('company_id', $companyId)->findOrFail($id);
+        $query = \App\Models\Customer::where('company_id', $companyId);
+        if (!$isOwner) {
+            $query->where(function ($q) use ($user) {
+                $q->whereNull('outlet_id')->orWhere('outlet_id', $user->outlet_id);
+            });
+        }
+        $customer = $query->findOrFail($id);
 
         // Pengecekan Relasi: Pastikan Pelanggan belum dipakai di transaksi penjualan (POS)
         $isUsed = DB::table('transactions')
