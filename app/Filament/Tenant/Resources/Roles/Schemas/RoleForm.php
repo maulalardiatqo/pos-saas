@@ -31,8 +31,6 @@ class RoleForm
             $mainModuleKey = match($module) {
                 'roles'       => 'users',
                 'outlets'     => 'settings',
-                'promotions'  => 'promotions',
-                'kitchen'     => 'kitchen',
                 default       => $module
             };
 
@@ -46,7 +44,7 @@ class RoleForm
             
             // Sub-fitur Produk
             if (str_starts_with($code, 'products.') && ! in_array($code, ['products.view', 'products.create', 'products.edit', 'products.delete'])) {
-                $subKey = str_replace('products.', '', $code); // Cth: category, brand
+                $subKey = str_replace('products.', '', $code); 
                 return data_get($features, "products.{$subKey}") === true;
             }
 
@@ -78,12 +76,6 @@ class RoleForm
             if (str_starts_with($code, 'reports.')) {
                 $subKey = str_replace('reports.', '', $code);
                 return data_get($features, "reports.{$subKey}") === true;
-            }
-
-            // Sub-fitur Advanced
-            if (str_starts_with($code, 'advanced.')) {
-                $subKey = str_replace('advanced.', '', $code);
-                return data_get($features, "advanced.{$subKey}") === true;
             }
 
             // Jika lolos semua pemeriksaan di atas (fitur core bawaan modul yang aktif), maka tampilkan
@@ -129,6 +121,7 @@ class RoleForm
                 
                 $record->permissions()->sync($checkedIds);
             });
+            
         // 6. Render Form
         return $schema
             ->components([
