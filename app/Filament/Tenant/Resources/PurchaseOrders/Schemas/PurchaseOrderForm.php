@@ -16,6 +16,7 @@ use Filament\Actions\Action;
 use Filament\Support\RawJs;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Filament\Schemas\Components\Grid;
 
 class PurchaseOrderForm
 {
@@ -99,7 +100,56 @@ class PurchaseOrderForm
                                 ->label('Pemasok (Vendor)')
                                 ->searchable()
                                 ->preload()
-                                ->required(),
+                                ->required()
+                                // =========================================================
+                                // FITUR TAMBAH SUPPLIER CEPAT (CREATE OPTION FORM)
+                                // =========================================================
+                                ->createOptionForm([
+                                    Grid::make(2)->schema([
+                                        TextInput::make('name')
+                                            ->label('Nama Perusahaan')
+                                            ->required()
+                                            ->maxLength(150),
+                                        
+                                        Select::make('outlet_id')
+                                            ->label('Lokasi Outlet / Cabang')
+                                            ->options(function () use ($isOwnerOrPlatform, $user) {
+                                                $query = \App\Models\Outlet::where('company_id', filament()->getTenant()->id);
+                                                if (!$isOwnerOrPlatform) {
+                                                    $query->where('id', $user->outlet_id);
+                                                }
+                                                return $query->pluck('name', 'id');
+                                            })
+                                            ->placeholder('Supplier Umum (Semua Cabang)')
+                                            ->searchable()
+                                            ->preload(),
+                                            
+                                        TextInput::make('contact_person')
+                                            ->label('Nama Kontak (PIC)')
+                                            ->maxLength(100),
+                                            
+                                        TextInput::make('phone')
+                                            ->label('Nomor Telepon')
+                                            ->tel()
+                                            ->maxLength(20),
+                                            
+                                        \Filament\Forms\Components\Textarea::make('address')
+                                            ->label('Alamat Lengkap')
+                                            ->rows(2)
+                                            ->columnSpanFull(),
+                                    ])
+                                ])
+                                ->createOptionAction(function (Action $action) {
+                                    return $action
+                                        ->modalHeading('Tambah Pemasok Baru')
+                                        ->mutateFormDataUsing(function (array $data): array {
+                                            // Menyuntikkan company_id dan kode secara otomatis saat disubmit
+                                            $data['company_id'] = filament()->getTenant()->id;
+                                            $data['code'] = 'SUP-' . strtoupper(str()->random(5));
+                                            $data['is_active'] = true;
+                                            return $data;
+                                        });
+                                }),
                             
                             Select::make('status')
                                 ->label('Status Dokumen')

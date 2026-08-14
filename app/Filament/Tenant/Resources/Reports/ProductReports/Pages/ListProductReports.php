@@ -53,7 +53,7 @@ class ListProductReports extends ListRecords
         $prevEnd = (clone $start)->subSecond();
         $prevStart = (clone $prevEnd)->subDays($days - 1)->startOfDay();
 
-        // BASE QUERY
+        // BASE QUERY UNTUK TRANSAKSI
         $makeBaseQuery = function (Carbon $from, Carbon $to) use ($tenantId, $isOwner, $user) {
             return DB::table('transaction_items')
                 ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
@@ -104,7 +104,7 @@ class ListProductReports extends ListRecords
 
         $pctChange = fn (float $current, float $prev) => $prev > 0 ? round((($current - $prev) / $prev) * 100, 1) : ($current > 0 ? 100.0 : 0.0);
 
-        // SPARKLINE: PISAHKAN DATA PER METRIK (Qty, Revenue, Profit, dll)
+        // SPARKLINE
         $dailyTrend = (clone $currentQuery)
             ->select(
                 DB::raw('DATE(transactions.created_at) as date'),
@@ -133,7 +133,7 @@ class ListProductReports extends ListRecords
             $sparkData['rev'][] = $dRev;
             $sparkData['price'][] = $dQty > 0 ? $dRev / $dQty : 0;
             $sparkData['margin'][] = $dRev > 0 ? ($dProf / $dRev) * 100 : 0;
-            $sparkData['active'][] = $activeProducts; // Garis lurus stabil untuk produk aktif
+            $sparkData['active'][] = $activeProducts;
 
             $cursor->addDay();
         }
@@ -161,25 +161,29 @@ class ListProductReports extends ListRecords
         foreach ($categorySales as $i => $cat) { $cat->color = $colors[$i % count($colors)]; }
 
         // =========================================================
-        // MENGHITUNG PERFORMA PRODUK (PRODUK BARU & STOK HABIS)
+        // MENGHITUNG PERFORMA PRODUK (PERBAIKAN LOGIC STOK HABIS)
         // =========================================================
         $perfNew = DB::table('products')->where('company_id', $tenantId)->whereBetween('created_at', [$start, $end])->count();
         
-        // Hitung berapa banyak barang fisik (goods) yang stoknya 0 atau kurang (Habis)
         $targetOutletId = $this->outletId ?? ($isOwner ? null : $user->outlet_id);
         
-        $perfOosQuery = DB::table('stocks')
-            ->join('products', 'stocks.product_id', '=', 'products.id')
-            ->where('stocks.company_id', $tenantId)
-            ->where('products.item_type', 'goods')
-            ->select('stocks.product_id', DB::raw('SUM(stocks.qty) as total_qty'))
-            ->groupBy('stocks.product_id')
-            ->having('total_qty', '<=', 0);
+        // PERBAIKAN: Mulai dari tabel products, lalu Left Join ke stocks
+        $perfOosQuery = DB::table('products')
+            ->where('products.company_id', $tenantId)
+            ->where('products.item_type', '!=', 'service') // Jasa tidak dihitung sebagai stok habis
+            ->when($this->categoryId, fn($q) => $q->where('products.category_id', $this->categoryId))
+            ->when($this->brandId, fn($q) => $q->where('products.brand_id', $this->brandId))
+            ->when($this->itemType, fn($q) => $q->where('products.item_type', $this->itemType))
+            ->leftJoin('stocks', function($join) use ($targetOutletId) {
+                $join->on('products.id', '=', 'stocks.product_id');
+                if ($targetOutletId) {
+                    $join->where('stocks.outlet_id', '=', $targetOutletId);
+                }
+            })
+            ->select('products.id')
+            ->groupBy('products.id')
+            ->havingRaw('COALESCE(SUM(stocks.qty), 0) <= 0');
             
-        if ($targetOutletId) {
-            $perfOosQuery->where('stocks.outlet_id', $targetOutletId);
-        }
-        
         $perfOos = $perfOosQuery->get()->count(); 
 
         return [

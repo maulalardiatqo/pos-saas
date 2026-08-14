@@ -1,4 +1,4 @@
-<div>
+<div x-on:focus-search.window="setTimeout(() => { $refs.searchInput.focus(); }, 50);">
     <x-filament-panels::page>
         @php
             $tenant = filament()->getTenant();
@@ -8,6 +8,9 @@
             $snapUrl = ($tenant->midtrans_is_production ?? false)
                 ? 'https://app.midtrans.com/snap/snap.js'
                 : 'https://app.sandbox.midtrans.com/snap/snap.js';
+
+            $user = auth()->user();
+            $outletName = $user->outlet ? $user->outlet->name : 'Pusat (Semua Cabang)';
         @endphp
 
         @if($clientKey)
@@ -29,7 +32,16 @@
                 --pos-shadow: 0 4px 20px rgba(0,0,0,0.3);
             }
 
-            .pos-layout { display: flex; gap: 1.25rem; height: calc(100vh - 170px); width: 100%; box-sizing: border-box; font-family: ui-sans-serif, system-ui, sans-serif; }
+            /* --- HILANGKAN HEADER DEFAULT FILAMENT --- */
+            .fi-header { display: none !important; }
+
+            /* --- HEADER INFO KUSTOM KITA --- */
+            .pos-top-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+            .pos-top-header-icon { width: 48px; height: 48px; background: #ffedd5; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #f97316; }
+            .pos-top-header h1 { font-size: 1.5rem; font-weight: 900; color: var(--pos-text-main); margin: 0; line-height: 1.2; }
+            .pos-top-header p { font-size: 0.85rem; color: var(--pos-text-muted); margin: 0; font-weight: 500; }
+
+            .pos-layout { display: flex; gap: 1.25rem; height: calc(100vh - 200px); width: 100%; box-sizing: border-box; font-family: ui-sans-serif, system-ui, sans-serif; }
             .pos-layout.is-fullscreen { 
                 position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
                 height: 100vh !important; width: 100vw !important; padding: 1.5rem; 
@@ -45,24 +57,31 @@
             .layout-list .pos-left-side { flex: 5; } 
             .layout-list .pos-right-side { flex: 7; width: auto; min-width: 0; }
 
-            .pos-search-box { display: flex; gap: 1rem; background: var(--pos-bg-panel); padding: 0.75rem 1rem; border-radius: 12px; border: 1px solid var(--pos-border); margin-bottom: 1rem; align-items: center; box-shadow: var(--pos-shadow); }
-            .pos-search-input { flex: 1; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.65rem 1rem; color: var(--pos-text-main); font-size: 0.875rem; outline: none; transition: border-color 0.2s; }
-            .pos-search-input:focus { border-color: #3b82f6; }
+            /* --- UI SEARCH BOX BARU SESUAI GAMBAR --- */
+            .pos-search-wrapper { display: flex; align-items: center; background: var(--pos-bg-panel); border: 1px solid #f97316; border-radius: 8px; padding: 0.35rem 0.5rem; margin-bottom: 1rem; transition: box-shadow 0.2s; }
+            .pos-search-wrapper:focus-within { box-shadow: 0 0 0 3px rgba(249,115,22,0.2); }
             
-            .pos-scan-btn { background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; color: var(--pos-text-main); padding: 0.65rem 1.25rem; font-size: 0.875rem; cursor: pointer; font-weight: 600; white-space: nowrap; }
-            .pos-scan-btn:hover { background: var(--pos-bg-hover); }
+            .pos-search-input-bare { flex: 1; border: none; background: transparent; padding: 0.5rem 0.75rem; color: var(--pos-text-main); font-size: 0.9rem; font-weight: 500; outline: none; }
+            
+            .pos-toggle-group { display: flex; gap: 0.25rem; align-items: center; }
+            .pos-toggle-btn { background: transparent; border: none; padding: 0.45rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.8rem; color: var(--pos-text-muted); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.35rem; }
+            .pos-toggle-btn.active-manual { color: var(--pos-text-main); }
+            .pos-toggle-btn.active-scan { background: #f97316; color: white; }
+            
+            .pos-fs-btn { background: transparent; border: 1px solid var(--pos-border-strong); border-radius: 6px; padding: 0.45rem; margin-left: 0.75rem; cursor: pointer; color: var(--pos-text-main); display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+            .pos-fs-btn:hover { background: var(--pos-bg-hover); }
 
             .pos-category-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 4px; }
             .pos-category-btn { background: var(--pos-bg-panel); border: 1px solid var(--pos-border); color: var(--pos-text-muted); padding: 0.5rem 1.25rem; border-radius: 8px; font-size: 0.825rem; font-weight: 600; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
             .pos-category-btn:hover { background: var(--pos-bg-hover); color: var(--pos-text-main); }
-            .pos-category-btn.active { background: #2563eb; border-color: #2563eb; color: #ffffff; }
+            .pos-category-btn.active { background: #3b82f6; border-color: #3b82f6; color: #ffffff; }
 
             .pos-products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); grid-auto-rows: max-content; align-items: start; gap: 1rem; overflow-y: auto; flex: 1; padding-right: 4px; }
             .pos-product-card { background: var(--pos-bg-panel); border: 1px solid var(--pos-border); border-radius: 12px; padding: 0.75rem; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; box-shadow: var(--pos-shadow); }
             .pos-product-card:hover { border-color: #3b82f6; transform: translateY(-2px); }
             .pos-img-wrapper { width: 100%; aspect-ratio: 1; background: var(--pos-bg-hover); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-bottom: 0.5rem; position: relative; }
             .pos-img-fallback { color: var(--pos-text-muted); font-size: 0.75rem; font-weight: 600; }
-            .pos-prod-title { font-size: 0.825rem; font-weight: 700; color: var(--pos-text-main); margin: 0 0 0.5rem 0; line-clamp: 2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; }
+            .pos-prod-title { font-size: 0.825rem; font-weight: 700; color: var(--pos-text-main); margin: 0 0 0.15rem 0; line-clamp: 2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; }
             .pos-prod-meta { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
             .pos-prod-price { font-size: 0.825rem; font-weight: 800; color: #3b82f6; }
             .pos-prod-stock { font-size: 0.7rem; color: var(--pos-text-muted); font-weight: 600; }
@@ -149,6 +168,19 @@
             .pos-pm-btn.active { border-color: #3b82f6; background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
             .pos-modal-title { font-size: 1.25rem; font-weight: 800; color: var(--pos-text-main); text-align: center; margin: 0; }
         </style>
+
+        <!-- --- HEADER USER & OUTLET INFO --- -->
+        <div class="pos-top-header">
+            <div class="pos-top-header-icon">
+                <svg style="width: 28px; height: 28px;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+            </div>
+            <div>
+                <h1>POINT OF SALE (POS)</h1>
+                <p>
+                    Sistem Kasir • <span style="color: #f97316; font-weight: bold;">{{ $outletName }}</span> • {{ $user->name }}
+                </p>
+            </div>
+        </div>
         
         @if(filament()->getTenant()->hasFeature('finance.closing_shift') && !$activeSession)
             <!-- 1. TAMPILAN FORM BUKA KASIR -->
@@ -168,7 +200,7 @@
 
                     <div style="margin-bottom: 2rem;">
                         <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--pos-text-muted); margin-bottom: 0.5rem; text-transform: uppercase;">Catatan (Opsional)</label>
-                        <textarea wire:model="sessionNotes" class="pos-search-input" rows="2" placeholder="Cth: Shift Pagi, Laci Aman..." style="width: 100%; box-sizing: border-box; resize: none;"></textarea>
+                        <textarea wire:model="sessionNotes" class="pos-search-input" rows="2" placeholder="Cth: Shift Pagi, Laci Aman..." style="width: 100%; box-sizing: border-box; resize: none; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.65rem 1rem;"></textarea>
                     </div>
 
                     <button wire:click="openShift" class="pos-btn-submit" style="width: 100%; padding: 1rem; font-size: 1rem;">
@@ -186,6 +218,7 @@
                     isFullscreen: false,
                     showPaymentModal: false,
                     showRewardModal: false,
+                    showCustomItemModal: false,
                     
                     bayar: @entangle('amountPaid'),
 
@@ -200,6 +233,7 @@
                     init() {
                         window.addEventListener('keydown', (e) => {
                             if (e.key === 'F2') { e.preventDefault(); $refs.searchInput.focus(); }
+                            if (e.key === 'F3') { e.preventDefault(); $wire.isScanMode = !$wire.isScanMode; $refs.searchInput.focus(); }
                             if (e.key === 'F4') { 
                                 e.preventDefault(); 
                                 if (this.showPaymentModal && $wire.paymentMethod !== '') {
@@ -228,6 +262,9 @@
                         });
                         window.addEventListener('close-reward-modal', () => {
                             this.showRewardModal = false;
+                        });
+                        window.addEventListener('close-custom-item-modal', () => {
+                            this.showCustomItemModal = false;
                         });
                         window.addEventListener('trigger-midtrans-snap', (event) => {
                             let snapToken = event.detail.snapToken;
@@ -258,14 +295,40 @@
                 <!-- ================= KOLOM KIRI: DAFTAR PRODUK ================= -->
                 <div class="pos-left-side">
                     
-                    <div class="pos-search-box">
+                    <!-- UI SEARCH BOX BARU & TOGGLE SCAN MODE -->
+                    <div class="pos-search-wrapper">
+                        <!-- Search Icon -->
+                        <div style="padding-left: 0.5rem; display: flex; align-items: center;">
+                            <svg x-show="!$wire.isScanMode" style="width: 20px; height: 20px; color: var(--pos-text-muted);" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"></path></svg>
+                            <svg x-show="$wire.isScanMode" style="width: 20px; height: 20px; color: #f97316;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5zM16.5 16.5h3.375v3.375M16.5 16.5V19.5m0-3.375h-3.375m3.375 0h3.375"></path></svg>
+                        </div>
+                        
+                        <!-- Penangkapan Enter Kilat Menggunakan Alpine untuk Scan Mode (Kirim Langsung) dan Livewire Debounce untuk Cari Manual -->
                         <input type="text" 
-                            wire:model.live="search" 
                             x-ref="searchInput"
-                            placeholder="Cari nama produk / kode SKU / scan barcode... (F2)" 
-                            class="pos-search-input">
-                        <button class="pos-scan-btn">Scan Mode (F3)</button>
-                        <button @click="toggleFullscreen()" class="pos-scan-btn" title="Layar Penuh (F11)" style="padding: 0.65rem; display: flex; align-items: center; justify-content: center;">
+                            x-on:keydown.enter.prevent="if($wire.isScanMode) { $wire.handleSearchEnter($el.value); $el.value = ''; }"
+                            wire:model.live.debounce.300ms="search" 
+                            :placeholder="$wire.isScanMode ? 'Mode aktif. Scan barcode di sini... (F2)' : 'Ketik SKU atau nama produk untuk mencari katalog... (F2)'" 
+                            class="pos-search-input-bare">
+                        
+                        <!-- Toggle Button Manual / Scan -->
+                        <div class="pos-toggle-group">
+                            <button wire:click="$set('isScanMode', false)" 
+                                    class="pos-toggle-btn"
+                                    :class="!$wire.isScanMode ? 'active-manual' : ''"
+                                    style="padding-right: 0.5rem;">
+                                <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"></path></svg>
+                                Cari Manual
+                            </button>
+                            <button wire:click="$set('isScanMode', true)" 
+                                    class="pos-toggle-btn"
+                                    :class="$wire.isScanMode ? 'active-scan' : ''">
+                                <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5zM16.5 16.5h3.375v3.375M16.5 16.5V19.5m0-3.375h-3.375m3.375 0h3.375"></path></svg>
+                                Scan Barcode
+                            </button>
+                        </div>
+                        
+                        <button @click="toggleFullscreen()" class="pos-fs-btn" title="Layar Penuh (F11)">
                             <svg x-show="!isFullscreen" style="width:20px; height:20px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
                             <svg x-show="isFullscreen" style="display:none; width:20px; height:20px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" /></svg>
                         </button>
@@ -285,6 +348,16 @@
                     @if($showImage)
                         <!-- TAMPILAN 1: GRID DENGAN GAMBAR -->
                         <div class="pos-products-grid">
+                            
+                            <!-- TOMBOL CUSTOM ITEM (GRID) -->
+                            <div @click="showCustomItemModal = true" class="pos-product-card" style="border: 2px dashed #cbd5e1; display: flex; align-items: center; justify-content: center; background: #f8fafc;">
+                                <div style="text-align: center;">
+                                    <div style="font-size: 2rem; color: #94a3b8; margin-bottom: 0.5rem;">+</div>
+                                    <div style="font-size: 0.85rem; font-weight: 700; color: #475569;">Custom Item</div>
+                                    <div style="font-size: 0.7rem; color: #94a3b8;">(Manual Input)</div>
+                                </div>
+                            </div>
+
                             @foreach($this->products as $product)
                                 <div wire:click="addToCart('{{ $product->id }}')" class="pos-product-card">
                                     <div class="pos-img-wrapper">
@@ -296,6 +369,7 @@
                                     </div>
                                     <div>
                                         <h4 class="pos-prod-title">{{ $product->name }}</h4>
+                                        <div style="font-size: 0.65rem; color: var(--pos-text-muted); margin-bottom: 0.35rem; font-weight: 600;">SKU: {{ $product->sku ?? '-' }}</div>
                                         <div class="pos-prod-meta">
                                             <span class="pos-prod-price">Rp {{ number_format($product->price, 0, ',', '.') }}</span>
                                             <span class="pos-prod-stock">{{ $product->current_stock ?? 0 }} {{ $product->uom_name }}</span>
@@ -315,11 +389,19 @@
                             </div>
                             
                             <div class="pos-list-body">
+                                <!-- TOMBOL CUSTOM ITEM (LIST) -->
+                                <div @click="showCustomItemModal = true" class="pos-list-item" style="border-bottom: 2px dashed #cbd5e1; background: #f8fafc;">
+                                    <div>
+                                        <div class="pos-list-name" style="color: #475569;">+ Custom Item (Manual Input)</div>
+                                    </div>
+                                    <div></div><div></div><div></div>
+                                </div>
+
                                 @foreach($this->products as $product)
                                     <div wire:click="addToCart('{{ $product->id }}')" class="pos-list-item">
                                         <div>
                                             <div class="pos-list-name">{{ $product->name }}</div>
-                                            <div class="pos-list-sku">{{ $product->sku ?? 'SKU-'.$product->id }}</div>
+                                            <div class="pos-list-sku">SKU: {{ $product->sku ?? '-' }}</div>
                                         </div>
                                         <div class="pos-list-price">
                                             Rp {{ number_format($product->price, 0, ',', '.') }}
@@ -337,7 +419,8 @@
                     @endif
 
                     <div class="pos-footer-shortcut">
-                        <div><span class="pos-badge-kbd">F2</span> Cari</div>
+                        <div><span class="pos-badge-kbd">F2</span> Cari / Scan</div>
+                        <div><span class="pos-badge-kbd">F3</span> Ganti Mode Cari</div>
                         <div><span class="pos-badge-kbd">F4</span> Bayar</div>
                         <div><span class="pos-badge-kbd">F11</span> Layar Penuh</div>
                     </div>
@@ -357,12 +440,20 @@
                     </div>
 
                     <div class="pos-customer-box">
-                        <select wire:model.live="customerId" class="pos-customer-select">
-                            <option value="">-- Pilih Pelanggan (Umum / Walk-in) --</option>
-                            @foreach($this->customers as $cust)
-                                <option value="{{ $cust->id }}">{{ $cust->name }}</option>
-                            @endforeach
-                        </select>
+                        <!-- TAMBAHAN TOMBOL "+" DI SEBELAH PELANGGAN -->
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <select wire:model.live="customerId" class="pos-customer-select" style="flex: 1;">
+                                <option value="">-- Pilih Pelanggan (Umum / Walk-in) --</option>
+                                @foreach($this->customers as $cust)
+                                    <option value="{{ $cust->id }}">{{ $cust->name }}</option>
+                                @endforeach
+                            </select>
+                            
+                            <!-- Memanggil fungsi createCustomerAction dari Class (Action Modal) -->
+                            <div style="height: 38px;">
+                                {{ $this->createCustomerAction }}
+                            </div>
+                        </div>
                         
                         <!-- INFORMASI MEMBERSHIP & POIN -->
                         @if($customerInfo)
@@ -430,6 +521,8 @@
                                     
                                     @if(isset($item['is_reward']))
                                         <span style="font-size:0.65rem; background:#8b5cf6; color:white; padding:2px 4px; border-radius:4px; font-weight:bold; display:inline-block; margin-top: 4px;">{{ $item['uom_name'] }} (Hadiah)</span>
+                                    @elseif(isset($item['is_manual']))
+                                        <span style="font-size:0.65rem; background:#64748b; color:white; padding:2px 4px; border-radius:4px; font-weight:bold; display:inline-block; margin-top: 4px;">Item Custom</span>
                                     @else
                                         <select id="uom-select-{{ $item['id'] }}" wire:change="changeUom('{{ $item['id'] }}', $event.target.value)" class="pos-cart-uom-select" style="margin-top: 4px; display: block;">
                                             @foreach($item['available_uoms'] as $uomOpt)
@@ -446,14 +539,14 @@
                                     @if(isset($item['is_reward']))
                                         <div style="width: 100%; text-align: center; font-weight: bold; font-size: 0.85rem; padding: 0.25rem;">1</div>
                                     @else
-                                        <button wire:click="updateQty('{{ $item['id'] }}', -1)" class="pos-qty-btn">-</button>
+                                        <button wire:click="updateQty('{{ $key }}', -1)" class="pos-qty-btn">-</button>
                                         <input type="number" 
                                             min="1"
                                             value="{{ $item['qty'] }}"
-                                            wire:change="setQty('{{ $item['id'] }}', $event.target.value)"
+                                            wire:change="setQty('{{ $key }}', $event.target.value)"
                                             x-on:focus="$el.select()"
                                             class="pos-qty-input">
-                                        <button wire:click="updateQty('{{ $item['id'] }}', 1)" class="pos-qty-btn">+</button>
+                                        <button wire:click="updateQty('{{ $key }}', 1)" class="pos-qty-btn">+</button>
                                     @endif
                                 </div>
                                 
@@ -588,6 +681,49 @@
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                             SELESAIKAN (F4)
                         </button>
+                    </div>
+                </div>
+
+               <!-- ================= MODAL ITEM CUSTOM ================= -->
+                <div x-show="showCustomItemModal" class="pos-modal-overlay" style="display: none;" x-transition>
+                    <div class="pos-modal-box" @click.away="showCustomItemModal = false" style="width: 400px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--pos-border); padding-bottom: 1rem; margin-bottom: 1rem;">
+                            <h3 class="pos-modal-title" style="margin: 0; font-size: 1.15rem;">Tambahkan Item Manual</h3>
+                            <button @click="showCustomItemModal = false" style="background: transparent; border: none; font-size: 1.25rem; font-weight: bold; cursor: pointer; color: var(--pos-text-muted);">&times;</button>
+                        </div>
+                        <p style="font-size: 0.75rem; color: var(--pos-text-muted); margin-top: -0.5rem; margin-bottom: 1rem;">
+                            Masukkan detail item manual yang ingin ditambahkan ke keranjang.
+                        </p>
+
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--pos-text-main); margin-bottom: 0.5rem;">Nama Item <span style="color: #ef4444;">*</span></label>
+                            <input type="text" wire:model="customItemName" class="pos-search-input" placeholder="Contoh: Jasa Bubut / Ongkos Pasang Custom" style="width: 100%; box-sizing: border-box; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.65rem 1rem;">
+                        </div>
+
+                        <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                            <div style="flex: 1;">
+                                <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--pos-text-main); margin-bottom: 0.5rem;">Harga Pokok (HPP)</label>
+                                <div style="position: relative;">
+                                    <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--pos-text-muted); font-size: 0.875rem; font-weight: bold;">Rp</span>
+                                    <input type="text" x-mask:dynamic="$money($input, ',', '.', 0)" wire:model="customItemCost" class="pos-search-input" style="width: 100%; padding-left: 2.2rem; box-sizing: border-box; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding-top: 0.65rem; padding-bottom: 0.65rem;" placeholder="0">
+                                </div>
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--pos-text-main); margin-bottom: 0.5rem;">Harga Jual <span style="color: #ef4444;">*</span></label>
+                                <div style="position: relative;">
+                                    <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--pos-text-muted); font-size: 0.875rem; font-weight: bold;">Rp</span>
+                                    <input type="text" x-mask:dynamic="$money($input, ',', '.', 0)" wire:model="customItemPrice" class="pos-search-input" style="width: 100%; padding-left: 2.2rem; box-sizing: border-box; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding-top: 0.65rem; padding-bottom: 0.65rem;" placeholder="0">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                            <button @click="showCustomItemModal = false" style="padding: 0.65rem 1.2rem; border-radius: 8px; border: 1px solid var(--pos-border-strong); background: var(--pos-bg-panel); font-weight: bold; cursor: pointer; color: var(--pos-text-muted);">Batal</button>
+                            <button wire:click="addCustomItemToCart" style="padding: 0.65rem 1.2rem; border-radius: 8px; border: none; background: #eab308; color: white; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                                <span wire:loading.remove wire:target="addCustomItemToCart">+ Tambahkan Item</span>
+                                <span wire:loading wire:target="addCustomItemToCart">Menyimpan...</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 

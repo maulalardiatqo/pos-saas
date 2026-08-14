@@ -10,11 +10,13 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Select; 
+use Illuminate\Database\Eloquent\Builder; // <-- Tambahan untuk query builder
 
 class SupplierForm
 {
     public static function configure(Schema $schema): Schema
     {
+        /** @var \App\Models\User $user */
         $user = auth()->user();
         $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
 
@@ -41,16 +43,21 @@ class SupplierForm
                                         ->maxLength(150)
                                         ->placeholder('Contoh: PT. ABC Indonesia'),
                                         
-                                    // SATU INPUT OUTLET UNTUK SEMUA (Dengan logika Disabled & Dehydrated)
+                                    // INPUT OUTLET UNTUK SEMUA USER (Owner & Staf)
                                     Select::make('outlet_id')
                                         ->label('Lokasi Outlet / Cabang')
-                                        ->relationship('outlet', 'name')
-                                        ->helperText('Kosongkan jika supplier ini menyuplai barang ke semua cabang (Global).')
+                                        ->relationship('outlet', 'name', function (Builder $query) use ($isOwnerOrPlatform, $user) {
+                                            // Jika BUKAN owner/platform, filter agar hanya muncul outlet user tersebut
+                                            if (!$isOwnerOrPlatform) {
+                                                $query->where('id', $user->outlet_id);
+                                            }
+                                            return $query;
+                                        })
+                                        // Placeholder ini otomatis bernilai `null` jika dipilih dan dikirim ke database
+                                        ->placeholder('Supplier Umum (Semua Cabang)')
+                                        ->helperText('kosongkan jika supplier ini menyuplai barang ke semua cabang (Global).')
                                         ->searchable()
-                                        ->preload()
-                                        ->default(fn () => $user?->outlet_id)
-                                        ->disabled(!$isOwnerOrPlatform) // Karyawan biasa tidak bisa mengubah isinya
-                                        ->dehydrated(), // Memaksa Filament untuk tetap menyimpan nilainya ke database meskipun disabled
+                                        ->preload(),
                                 ]),
 
                                 Textarea::make('address')

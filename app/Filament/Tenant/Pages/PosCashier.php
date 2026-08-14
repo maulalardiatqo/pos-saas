@@ -6,7 +6,7 @@ use Filament\Pages\Page;
 use App\Models\Product;
 use App\Models\Category;
 use App\Models\StockMovement;
-use App\Models\Stock; // <-- IMPORT MODEL STOCK BARU KITA
+use App\Models\Stock; 
 use App\Models\Transaction;
 use App\Models\TransactionItem;
 use App\Models\PointHistory;
@@ -20,24 +20,36 @@ use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use BackedEnum;
 use Illuminate\Contracts\Support\Htmlable;
+use Filament\Actions\Action; 
+use Filament\Forms\Components\TextInput; 
+use Filament\Forms\Components\Select; 
+use Filament\Forms\Components\Textarea; 
 
 class PosCashier extends Page
 {
     protected string $view = 'filament.tenant.pages.pos-cashier';
     protected static ?string $slug = 'pos/cashier';
 
-    public function getTitle(): string|Htmlable { return 'Kasir POS'; }
+    // Menghilangkan Heading bawaan Filament agar lebih bersih
+    public function getHeading(): string|Htmlable { return ''; }
+    
     public static function getNavigationLabel(): string { return 'Penjualan (POS)'; }
     public static function getNavigationIcon(): string|BackedEnum|null { return 'heroicon-o-shopping-cart'; }
 
     // Livewire States
     public $search = '';
+    public bool $isScanMode = false; // State Mode Scan
     public $activeCategory = 'all';
     public $cart = [];
     public $discount = 0;
     public $amountPaid = 0;
     public $pointsToRedeem = 0;
     
+    // PROPERTI ITEM CUSTOM (MANUAL INPUT)
+    public $customItemName = '';
+    public $customItemCost = '';
+    public $customItemPrice = '';
+
     // PROPERTI CRM & PEMBAYARAN
     public $customerId = null;
     public $customerInfo = null; 
@@ -56,6 +68,110 @@ class PosCashier extends Page
             $this->checkActiveSession();
         }
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FUNGSI TAMBAH PELANGGAN CEPAT (MODAL FILAMENT)
+    |--------------------------------------------------------------------------
+    */
+    public function createCustomerAction(): Action
+    {
+        return Action::make('createCustomer')
+            ->label('')
+            ->icon('heroicon-m-plus')
+            ->color('warning') // Mengubah warna tombol menjadi kuning/oranye
+            ->tooltip('Tambah Pelanggan Baru')
+            ->extraAttributes(['style' => 'height: 38px; width: 38px; display: flex; align-items: center; justify-content: center; border-radius: 8px; margin-left: 0.5rem;'])
+            ->form([
+                TextInput::make('name')
+                    ->label('Nama Lengkap')
+                    ->required()
+                    ->maxLength(150),
+                // PERBAIKAN ERROR 500: Gunakan ->options() bukan ->relationship() di dalam Action
+                Select::make('outlet_id')
+                    ->label('Pilih Outlet / Cabang')
+                    ->options(function () {
+                        $user = auth()->user();
+                        $isOwnerOrPlatform = $user && ($user->isOwner() || $user->isPlatform());
+                        $query = \App\Models\Outlet::where('company_id', filament()->getTenant()->id);
+                        if (!$isOwnerOrPlatform) {
+                            $query->where('id', $user->outlet_id);
+                        }
+                        return $query->pluck('name', 'id');
+                    })
+                    ->placeholder('Pelanggan Umum (Semua Outlet)')
+                    ->helperText('Kosongkan jika pelanggan ini bisa berbelanja di semua cabang (Global).')
+                    ->searchable()
+                    ->preload(),
+                TextInput::make('phone')
+                    ->label('Nomor Telepon')
+                    ->tel()
+                    ->maxLength(20),
+                TextInput::make('email')
+                    ->label('Email')
+                    ->email()
+                    ->maxLength(100),
+                Textarea::make('address')
+                    ->label('Alamat Lengkap')
+                    ->rows(3),
+            ])
+            ->action(function (array $data) {
+                $tenant = filament()->getTenant();
+                $customer = Customer::create([
+                    'company_id' => $tenant->id,
+                    'outlet_id'  => $data['outlet_id'] ?? null,
+                    'code'       => 'CUST-' . strtoupper(str()->random(5)),
+                    'name'       => $data['name'],
+                    'phone'      => $data['phone'] ?? null,
+                    'email'      => $data['email'] ?? null,
+                    'address'    => $data['address'] ?? null,
+                    'is_active'  => true,
+                ]);
+
+                // Auto select pelanggan yang baru dibuat
+                $this->customerId = $customer->id;
+                $this->updatedCustomerId($customer->id);
+                Notification::make()->title('Pelanggan berhasil ditambahkan!')->success()->send();
+            });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | FUNGSI PENCARIAN SUPER KILAT (BARCODE SCANNER)
+    |--------------------------------------------------------------------------
+    */
+    public function handleSearchEnter($scannedCode = null)
+    {
+        $code = $scannedCode ?: $this->search;
+        if (empty(trim($code))) return;
+        $searchStr = strtolower(trim($code));
+
+        // Cari Produk di DB berdasarkan SKU atau Barcode (Menggunakan Subquery yang lebih aman)
+        $dbProduct = Product::where('company_id', filament()->getTenant()->id)
+            ->where(function($q) use ($searchStr) {
+                $q->where('sku', $searchStr)
+                  ->orWhere('barcode', $searchStr)
+                  // Perbaikan Error: Menggunakan orWhereIn ke tabel product_uoms langsung
+                  ->orWhereIn('id', function ($subQuery) use ($searchStr) {
+                      $subQuery->select('product_id')
+                               ->from('product_uoms')
+                               ->where('barcode', $searchStr)
+                               ->whereNull('deleted_at'); // Jika Anda menggunakan SoftDeletes
+                  });
+            })->first();
+            
+        if ($dbProduct) {
+            $this->addToCart($dbProduct->id);
+            // Bersihkan input dan set fokus kembali di dalam function livewire
+            $this->search = ''; 
+            $this->dispatch('focus-search');
+        } else {
+            Notification::make()->title('Barcode/SKU tidak ditemukan!')->warning()->send();
+            // Bersihkan input dan set fokus kembali di dalam function livewire
+            $this->search = ''; 
+            $this->dispatch('focus-search');
+        }
+    }
     
     public function getCategoriesProperty()
     {
@@ -68,7 +184,6 @@ class PosCashier extends Page
         $tenantId = filament()->getTenant()?->id;
         $outletId = $user->outlet_id;
 
-        // PERBAIKAN STOK: Membaca langsung dari tabel stocks (Lebih Ringan)
         $latestStockSubquery = Stock::selectRaw('COALESCE(qty, 0)')
             ->whereColumn('product_id', 'products.id')
             ->where('outlet_id', $outletId)
@@ -93,17 +208,23 @@ class PosCashier extends Page
                 'products.id', 'products.name', 'products.image_url', 'products.item_type',
                 'products.product_type', 'products.base_price as price', 'products.cost_price as cost', 
                 DB::raw('COALESCE(product_uoms.barcode, products.barcode) as barcode'),
+                'products.sku', 
                 DB::raw('COALESCE(product_uoms.uom_id, products.base_uom_id) as uom_id'),
                 DB::raw('COALESCE(variant_uoms.name, base_uoms.name) as uom_name'),
                 DB::raw('COALESCE(product_uoms.conversion_factor, 1) as conversion_factor')
             ])
             ->selectSub($latestStockSubquery, 'current_stock')
             ->when($this->search, function ($q) {
-                $q->where(function($query) {
-                    $query->where('products.name', 'like', "%{$this->search}%")
-                          ->orWhere('products.barcode', 'like', "%{$this->search}%")
-                          ->orWhere('product_uoms.barcode', 'like', "%{$this->search}%");
-                });
+                // Di Mode Scan, kita tidak memfilter list Grid, list grid dibiarkan tampil semua. 
+                // Grid filter hanya aktif saat mode "Cari Manual".
+                if (!$this->isScanMode) {
+                    $q->where(function($query) {
+                        $query->where('products.name', 'like', "%{$this->search}%")
+                              ->orWhere('products.sku', 'like', "%{$this->search}%")
+                              ->orWhere('products.barcode', 'like', "%{$this->search}%")
+                              ->orWhere('product_uoms.barcode', 'like', "%{$this->search}%");
+                    });
+                }
             })
             ->when($this->activeCategory !== 'all', fn ($q) => $q->where('products.category_id', $this->activeCategory))
             ->get();
@@ -122,7 +243,6 @@ class PosCashier extends Page
         $this->syncAmountPaid();
     }
     
-    // PERBAIKAN FILTER PELANGGAN BERDASARKAN OUTLET
     public function getCustomersProperty()
     {
         $tenantId = filament()->getTenant()?->id;
@@ -132,8 +252,6 @@ class PosCashier extends Page
         return Customer::where('company_id', $tenantId)
             ->where('is_active', true)
             ->where(function ($query) use ($outletId) {
-                // Tampilkan pelanggan yang outlet_id nya kosong (Global)
-                // ATAU pelanggan yang terdaftar khusus di cabang kasir ini
                 $query->whereNull('outlet_id')
                       ->orWhere('outlet_id', $outletId);
             })
@@ -160,15 +278,91 @@ class PosCashier extends Page
         return collect($this->claimedRewards)->where('type', 'discount')->sum('discount_amount');
     }
 
+    // FUNGSI TAMBAH ITEM MANUAL
+    public function addCustomItemToCart()
+    {
+        // Bersihkan titik ribuan dan pastikan string kosong menjadi null agar lolos validasi
+        $price = preg_replace('/[^0-9]/', '', (string) $this->customItemPrice);
+        $cost = preg_replace('/[^0-9]/', '', (string) $this->customItemCost);
+
+        $this->customItemPrice = $price === '' ? null : $price;
+        $this->customItemCost = $cost === '' ? null : $cost;
+
+        $this->validate([
+            'customItemName' => 'required|string|max:255',
+            'customItemPrice' => 'required|numeric|min:0',
+            'customItemCost' => 'nullable|numeric|min:0',
+        ], [
+            'customItemName.required' => 'Nama item wajib diisi.',
+            'customItemPrice.required' => 'Harga jual wajib diisi.',
+            'customItemPrice.numeric' => 'Harga jual harus berupa angka.',
+        ]);
+
+        $fakeId = 'manual_' . time() . '_' . rand(100, 999);
+
+        $this->cart[$fakeId] = [
+            'id' => null, 
+            'name' => $this->customItemName,
+            'item_type' => 'service', 
+            'product_type' => 'standard',
+            'price' => (float) $this->customItemPrice,
+            'cost' => (float) ($this->customItemCost ?: 0), 
+            'qty' => 1,
+            'uom_id' => null,
+            'uom_name' => '-',
+            'conversion_factor' => 1,
+            'image' => null,
+            'available_uoms' => [], 
+            'is_manual' => true,
+        ];
+
+        $this->syncAmountPaid();
+        $this->reset(['customItemName', 'customItemCost', 'customItemPrice']);
+        $this->dispatch('close-custom-item-modal');
+        Notification::make()->title('Item Manual Ditambahkan!')->success()->send();
+    }
+
     public function addToCart($productId)
     {
+        // Pertama coba cari di collection saat ini (untuk performa)
         $product = collect($this->products)->firstWhere('id', $productId);
+        
+        // Jika tidak ada (karena dicari langsung via fungsi scan kilat), query dari DB
+        if (!$product) {
+            $outletId = auth()->user()->outlet_id;
+            $latestStockSubquery = Stock::selectRaw('COALESCE(qty, 0)')
+                ->whereColumn('product_id', 'products.id')
+                ->where('outlet_id', $outletId)
+                ->limit(1);
+
+            $product = Product::query()
+                ->where('products.id', $productId)
+                ->join('uoms as base_uoms', 'products.base_uom_id', '=', 'base_uoms.id')
+                ->leftJoin('product_uoms', function ($join) {
+                    $join->on('products.id', '=', 'product_uoms.product_id')
+                         ->where('product_uoms.is_default', true)
+                         ->whereNull('product_uoms.deleted_at'); 
+                })
+                ->leftJoin('uoms as variant_uoms', 'product_uoms.uom_id', '=', 'variant_uoms.id')
+                ->select([
+                    'products.id', 'products.name', 'products.image_url', 'products.item_type',
+                    'products.product_type', 'products.base_price as price', 'products.cost_price as cost', 
+                    DB::raw('COALESCE(product_uoms.uom_id, products.base_uom_id) as uom_id'),
+                    DB::raw('COALESCE(variant_uoms.name, base_uoms.name) as uom_name'),
+                    DB::raw('COALESCE(product_uoms.conversion_factor, 1) as conversion_factor')
+                ])
+                ->selectSub($latestStockSubquery, 'current_stock')
+                ->first();
+        }
+
+        if (!$product) return; 
+
         $isService = ($product->item_type === 'service');
         $isBundle = in_array($product->product_type, ['bundle', 'recipe']);
         $currentStock = (float) ($product->current_stock ?? 0);
 
-        if (!$isService && !$isBundle && (!$product || $currentStock <= 0)) {
-            Notification::make()->title('Stok Produk Habis di Outlet Ini!')->danger()->send();
+        if (!$isService && !$isBundle && $currentStock <= 0) {
+            Notification::make()->title('Stok Habis!')->body("Stok untuk {$product->name} kosong di Outlet ini.")->danger()->send();
             return;
         }
 
@@ -213,8 +407,8 @@ class PosCashier extends Page
                 'id' => $product->id, 'name' => $product->name,
                 'item_type' => $product->item_type, 'product_type' => $product->product_type,
                 'price' => (float) $product->price, 'cost' => (float) $product->cost, 
-                'qty' => 1, 'uom_id' => $product->uom_id, 'uom_name' => $product->uom_name,
-                'conversion_factor' => (float) $product->conversion_factor,
+                'qty' => 1, 'uom_id' => $product->uom_id ?? ($baseUomData->id ?? null), 'uom_name' => $product->uom_name ?? ($baseUomData->name ?? '-'),
+                'conversion_factor' => (float) ($product->conversion_factor ?? 1),
                 'image' => $product->image_url ?? 'https://placehold.co/150',
                 'available_uoms' => array_values($availableUoms), 
             ];
@@ -230,8 +424,9 @@ class PosCashier extends Page
         $selectedUom = collect($item['available_uoms'])->firstWhere('id', $newUomId);
 
         if ($selectedUom) {
-            $product = collect($this->products)->firstWhere('id', $productId);
-            $currentStock = (float) ($product->current_stock ?? 0);
+            $currentStockRecord = Stock::where('product_id', $productId)->where('outlet_id', auth()->user()->outlet_id)->first();
+            $currentStock = $currentStockRecord ? (float) $currentStockRecord->qty : 0;
+            
             $isService = ($item['item_type'] ?? 'goods') === 'service';
             $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
 
@@ -259,7 +454,6 @@ class PosCashier extends Page
     {
         if (!isset($this->cart[$productId])) return;
         
-        $product = collect($this->products)->firstWhere('id', $productId);
         $nextQty = $this->cart[$productId]['qty'] + $delta;
 
         if ($nextQty <= 0) {
@@ -271,9 +465,15 @@ class PosCashier extends Page
         $isService = ($this->cart[$productId]['item_type'] ?? 'goods') === 'service';
         $isBundle = in_array($this->cart[$productId]['product_type'] ?? 'standard', ['bundle', 'recipe']);
         
-        if (!$isService && !$isBundle && ($nextQty * $this->cart[$productId]['conversion_factor']) > (float)($product->current_stock ?? 0)) {
-            Notification::make()->title('Stok melebihi batas mutasi!')->warning()->send();
-            return;
+        // Pengecekan stok hanya untuk item normal
+        if (!$isService && !$isBundle && !isset($this->cart[$productId]['is_manual'])) {
+            $currentStockRecord = Stock::where('product_id', $this->cart[$productId]['id'])->where('outlet_id', auth()->user()->outlet_id)->first();
+            $currentStock = $currentStockRecord ? (float) $currentStockRecord->qty : 0;
+            
+            if (($nextQty * $this->cart[$productId]['conversion_factor']) > $currentStock) {
+                Notification::make()->title('Stok melebihi batas mutasi!')->warning()->send();
+                return;
+            }
         }
 
         $this->cart[$productId]['qty'] = $nextQty;
@@ -310,7 +510,6 @@ class PosCashier extends Page
         if (!isset($this->cart[$productId])) return;
 
         $newQty = (float) $newQty;
-        $product = collect($this->products)->firstWhere('id', $productId);
 
         if ($newQty <= 0) {
             unset($this->cart[$productId]);
@@ -321,11 +520,16 @@ class PosCashier extends Page
         $isService = ($this->cart[$productId]['item_type'] ?? 'goods') === 'service';
         $isBundle = in_array($this->cart[$productId]['product_type'] ?? 'standard', ['bundle', 'recipe']);
         
-        if (!$isService && !$isBundle && ($newQty * $this->cart[$productId]['conversion_factor']) > (float)($product->current_stock ?? 0)) {
-            Notification::make()->title('Sisa stok tidak mencukupi untuk jumlah ini!')->warning()->send();
-            $this->cart[$productId]['qty'] = floor((float)($product->current_stock ?? 0) / $this->cart[$productId]['conversion_factor']);
-            $this->syncAmountPaid();
-            return;
+        if (!$isService && !$isBundle && !isset($this->cart[$productId]['is_manual'])) {
+            $currentStockRecord = Stock::where('product_id', $this->cart[$productId]['id'])->where('outlet_id', auth()->user()->outlet_id)->first();
+            $currentStock = $currentStockRecord ? (float) $currentStockRecord->qty : 0;
+            
+            if (($newQty * $this->cart[$productId]['conversion_factor']) > $currentStock) {
+                Notification::make()->title('Sisa stok tidak mencukupi untuk jumlah ini!')->warning()->send();
+                $this->cart[$productId]['qty'] = floor($currentStock / $this->cart[$productId]['conversion_factor']);
+                $this->syncAmountPaid();
+                return;
+            }
         }
 
         $this->cart[$productId]['qty'] = $newQty;
@@ -359,7 +563,9 @@ class PosCashier extends Page
                 return;
             }
 
-            $currentStock = (float) ($product->current_stock ?? 0);
+            $currentStockRecord = Stock::where('product_id', $product->id)->where('outlet_id', auth()->user()->outlet_id)->first();
+            $currentStock = $currentStockRecord ? (float) $currentStockRecord->qty : 0;
+            
             if ($product->item_type !== 'service' && $currentStock < 1) {
                 Notification::make()->title('Stok barang hadiah habis!')->danger()->send();
                 return;
@@ -525,7 +731,7 @@ class PosCashier extends Page
     }
 
     // =========================================================================
-    // UPDATE SUBMIT TRANSACTION DENGAN RACE CONDITION HANDLING
+    // SUBMIT TRANSACTION
     // =========================================================================
     public function submitTransaction()
     {
@@ -544,10 +750,8 @@ class PosCashier extends Page
         $companyId = $company?->id;
 
         try {
-            // [!!! PENTING !!!] Buka transaksi DATABASE di AWAL sebelum mengecek stok
             DB::beginTransaction();
 
-            // --- 1. HITUNG KEBUTUHAN STOK ---
             $requiredStocks = []; 
             foreach ($this->cart as $item) {
                 $isBundle = in_array($item['product_type'] ?? 'standard', ['bundle', 'recipe']);
@@ -562,27 +766,22 @@ class PosCashier extends Page
                             $requiredStocks[$child->id] = ($requiredStocks[$child->id] ?? 0) + $qtyNeeded;
                         }
                     }
-                } elseif (!$isService && empty($item['is_reward'])) {
+                } elseif (!$isService && empty($item['is_reward']) && empty($item['is_manual'])) {
                     $qtyNeeded = $item['qty'] * $item['conversion_factor'];
                     $requiredStocks[$item['id']] = ($requiredStocks[$item['id']] ?? 0) + $qtyNeeded;
                 }
             }
 
-            // --- 2. PESSIMISTIC LOCKING PADA PRODUCT UNTUK MENCEGAH DEADLOCK ANTAR TRANSAKSI ---
             if (!empty($requiredStocks)) {
                 $productIdsToLock = array_keys($requiredStocks);
-                
-                // MENGURUTKAN ID SANGAT PENTING: Mencegah 'Deadlock' (Error MySQL)
                 sort($productIdsToLock);
 
-                // Eksekusi Kunci! (Kasir lain akan 'ngantre/loading' sampai transaksi ini selesai)
                 $lockedProducts = Product::whereIn('id', $productIdsToLock)
                     ->orderBy('id')
                     ->lockForUpdate()
                     ->get()
                     ->keyBy('id');
 
-                // --- 3. VALIDASI STOK (Membaca langsung dari tabel stocks) ---
                 foreach ($requiredStocks as $prodId => $totalNeeded) {
                     $stockRecord = DB::table('stocks')
                         ->where('product_id', $prodId)
@@ -593,7 +792,7 @@ class PosCashier extends Page
                     
                     if ($totalNeeded > $available) {
                         $prodName = $lockedProducts[$prodId]->name ?? 'Produk';
-                        DB::rollBack(); // Buka Kunci
+                        DB::rollBack(); 
                         
                         Notification::make()
                             ->title("Stok komponen kurang!")
@@ -607,11 +806,9 @@ class PosCashier extends Page
                 }
             }
 
-            // --- 4. JIKA STOK CUKUP, BUAT TRANSAKSI ---
             $isMidtransPayment = ($this->paymentMethod === 'qris' || $this->paymentMethod === 'ewallet') && !empty($company->midtrans_server_key);
             $uniqueOrderId = 'POS-' . date('ymdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
 
-            // (Khusus Midtrans)
             if ($isMidtransPayment) {
                 $rawGrandTotal = $this->getGrandTotal();
                 $cleanGrandTotal = (int) preg_replace('/[^0-9]/', '', (string) round($rawGrandTotal));
@@ -625,8 +822,10 @@ class PosCashier extends Page
                 $itemDetails = [];
                 foreach ($this->cart as $item) {
                     $itemDetails[] = [
-                        'id' => (string) $item['id'], 'price' => (int) preg_replace('/[^0-9]/', '', (string) round($item['price'])),
-                        'quantity' => (int) $item['qty'], 'name' => substr($item['name'], 0, 50),
+                        'id' => empty($item['id']) ? 'MANUAL' : (string) $item['id'],
+                        'price' => (int) preg_replace('/[^0-9]/', '', (string) round($item['price'])),
+                        'quantity' => (int) $item['qty'], 
+                        'name' => substr($item['name'], 0, 50),
                     ];
                 }
 
@@ -653,7 +852,10 @@ class PosCashier extends Page
                 foreach ($this->cart as $item) {
                     TransactionItem::create([
                         'company_id' => $companyId, 'transaction_id' => $transaction->id,
-                        'product_id' => $item['id'], 'uom_id' => $item['uom_id'], 'qty' => $item['qty'],
+                        'product_id' => $item['id'] ?? null, 
+                        'item_name' => $item['name'], 
+                        'uom_id' => $item['uom_id'] ?? null, 
+                        'qty' => $item['qty'],
                         'conversion_factor' => $item['conversion_factor'], 'base_qty' => $item['qty'] * $item['conversion_factor'],
                         'cost_price' => ($item['cost'] ?? 0) * $item['conversion_factor'], 
                         'selling_price' => $item['price'], 'subtotal' => $item['price'] * $item['qty'],
@@ -663,19 +865,18 @@ class PosCashier extends Page
                 try {
                     $snapToken = MidtransService::createTransaction($company, ['order_id' => $uniqueOrderId, 'gross_amount' => $cleanGrandTotal], $itemDetails);
                     
-                    DB::commit(); // SELESAI MIDTRANS, LEPAS KUNCI
+                    DB::commit(); 
                     
                     $this->dispatch('close-payment-modal');
                     $this->dispatch('trigger-midtrans-snap', snapToken: $snapToken, transactionId: $transaction->id);
                     return;
                 } catch (\Exception $e) {
-                    DB::rollBack(); // MIDTRANS GAGAL, BATALKAN SEMUA
+                    DB::rollBack(); 
                     Notification::make()->title('Gagal terhubung ke Midtrans')->body($e->getMessage())->danger()->send(); 
                     return;
                 }
             }
 
-            // (Pembayaran Manual/Cash)
             $newTrx = Transaction::create([
                 'company_id' => $companyId, 'outlet_id' => $outletId, 'user_id' => auth()->id(),
                 'pos_session_id' => (filament()->getTenant()->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
@@ -692,22 +893,24 @@ class PosCashier extends Page
             foreach ($this->cart as $item) {
                 TransactionItem::create([
                     'company_id' => $companyId, 'transaction_id' => $newTrx->id,
-                    'product_id' => $item['id'], 'uom_id' => $item['uom_id'], 'qty' => $item['qty'],
+                    'product_id' => $item['id'] ?? null, 
+                    'item_name' => $item['name'], 
+                    'uom_id' => $item['uom_id'] ?? null, 
+                    'qty' => $item['qty'],
                     'conversion_factor' => $item['conversion_factor'], 'base_qty' => $item['qty'] * $item['conversion_factor'],
                     'cost_price' => ($item['cost'] ?? 0) * $item['conversion_factor'], 
                     'selling_price' => $item['price'], 'subtotal' => $item['price'] * $item['qty'],
                 ]);
             }
 
-            // Eksekusi potong stok, jurnal dll
             $this->fulfillTransaction($newTrx);
             
-            DB::commit(); // SELESAI CASH, LEPAS KUNCI (UNLOCKED)
+            DB::commit(); 
 
             Notification::make()->title('Transaksi Berhasil!')->success()->send();
             $this->dispatch('open-receipt', url: route('pos.receipt', $newTrx->id));
             $this->dispatch('close-payment-modal'); 
-            $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards']);
+            $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost']);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -726,7 +929,7 @@ class PosCashier extends Page
 
             Notification::make()->title('Pembayaran QRIS Berhasil!')->success()->send();
             $this->dispatch('open-receipt', url: route('pos.receipt', $transaction->id));
-            $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards']);
+            $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost']);
         }
     }
 
@@ -769,7 +972,6 @@ class PosCashier extends Page
 
         $company = filament()->getTenant();
 
-        // POTONG POIN CASHBACK MANUAL
         if ($this->pointsToRedeem > 0 && $transaction->customer_id) {
             PointHistory::create([
                 'company_id' => $companyId, 'customer_id' => $transaction->customer_id,
@@ -778,7 +980,6 @@ class PosCashier extends Page
             ]);
         }
 
-        // POTONG POIN REWARD KATALOG
         if (!empty($this->claimedRewards) && $transaction->customer_id) {
             foreach ($this->claimedRewards as $reward) {
                 PointHistory::create([
@@ -789,7 +990,6 @@ class PosCashier extends Page
             }
         }
 
-        // DAPAT POIN DARI TRANSAKSI
         if ($transaction->customer_id && $company->is_loyalty_enabled && $company->loyalty_spend_amount > 0) {
             $earnedMultiplier = floor($transaction->grand_total / $company->loyalty_spend_amount);
             $earnedPoints = $earnedMultiplier * (int) $company->loyalty_point_earned; 
@@ -805,6 +1005,8 @@ class PosCashier extends Page
 
         $items = TransactionItem::where('transaction_id', $transaction->id)->get();
         foreach ($items as $trxItem) {
+            if (!$trxItem->product_id) continue;
+
             $product = Product::find($trxItem->product_id);
             if (!$product) continue;
 
@@ -818,7 +1020,6 @@ class PosCashier extends Page
                     if ($child && $child->item_type === 'goods') {
                         $qtyToDeduct = $trxItem->base_qty * (float)$comp->quantity;
                         
-                        // PEMOTONGAN STOK BUNDLE DENGAN TABEL STOCKS + LOCKING
                         $stockRecord = Stock::firstOrCreate(
                             ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $comp->child_product_id],
                             ['qty' => 0]
@@ -840,7 +1041,6 @@ class PosCashier extends Page
                 }
             } elseif (!$isService) {
                 
-                // PEMOTONGAN STOK STANDAR DENGAN TABEL STOCKS + LOCKING
                 $stockRecord = Stock::firstOrCreate(
                     ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $product->id],
                     ['qty' => 0]
@@ -862,3 +1062,4 @@ class PosCashier extends Page
         }
     }
 }
+?>

@@ -26,30 +26,37 @@ class ProductReportsTable
                 
                 $query->where('products.company_id', $tenantId);
 
-                // --- SUBQUERY TERJUAL (Kuantitas) ---
-                $terjualSub = DB::table('transaction_items')
+                // =======================================================
+                // PERBAIKAN 1: BUAT BASE QUERY MURNI TANPA 'SELECT'
+                // =======================================================
+                $baseTrxSub = DB::table('transaction_items')
                     ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
                     ->whereColumn('transaction_items.product_id', 'products.id')
                     ->where('transactions.type', 'sale')
                     ->where('transactions.status', 'completed')
-                    ->whereBetween('transactions.created_at', [$startDate, $endDate])
-                    ->select(DB::raw('COALESCE(SUM(transaction_items.qty), 0)'));
-                if ($outletId) $terjualSub->where('transactions.outlet_id', $outletId);
+                    ->whereBetween('transactions.created_at', [$startDate, $endDate]);
+                    
+                if ($outletId) {
+                    $baseTrxSub->where('transactions.outlet_id', $outletId);
+                }
+
+                // =======================================================
+                // KLONING BASE QUERY AGAR KOLOM TIDAK BERTUMPUK (ERROR)
+                // =======================================================
+                // --- SUBQUERY TERJUAL (Kuantitas) ---
+                $terjualSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.qty), 0)');
 
                 // --- SUBQUERY PENJUALAN (Omset) ---
-                $penjualanSub = clone $terjualSub;
-                $penjualanSub->select(DB::raw('COALESCE(SUM(transaction_items.subtotal), 0)'));
+                $penjualanSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.subtotal), 0)');
 
                 // --- SUBQUERY HPP (Modal) ---
-                $hppSub = clone $terjualSub;
-                $hppSub->select(DB::raw('COALESCE(SUM(transaction_items.qty * transaction_items.cost_price), 0)'));
+                $hppSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.qty * transaction_items.cost_price), 0)');
 
-                // =======================================================
-                // PERBAIKAN: SUBQUERY STOK AKHIR MENGGUNAKAN TABEL `stocks`
-                // =======================================================
+                // --- SUBQUERY STOK AKHIR ---
                 $stokSub = DB::table('stocks')
                     ->whereColumn('stocks.product_id', 'products.id')
-                    ->select(DB::raw('COALESCE(SUM(stocks.qty), 0)'));
+                    ->selectRaw('COALESCE(SUM(stocks.qty), 0)');
+                    
                 if ($outletId) {
                     $stokSub->where('stocks.outlet_id', $outletId);
                 }
@@ -78,8 +85,12 @@ class ProductReportsTable
                     ->label('Kategori')
                     ->sortable(),
 
+                // =======================================================
+                // PERBAIKAN 2: PAKSA NILAI NULL MENJADI 0 DENGAN getStateUsing
+                // =======================================================
                 TextColumn::make('terjual')
                     ->label('Terjual')
+                    ->getStateUsing(fn ($record) => (float) ($record->terjual ?? 0))
                     ->numeric()
                     ->sortable()
                     ->badge()
@@ -87,19 +98,21 @@ class ProductReportsTable
 
                 TextColumn::make('penjualan')
                     ->label('Penjualan')
+                    ->getStateUsing(fn ($record) => (float) ($record->penjualan ?? 0))
                     ->money('IDR', locale: 'id')
                     ->sortable()
                     ->weight('bold'),
 
                 TextColumn::make('hpp_total')
                     ->label('Total HPP')
+                    ->getStateUsing(fn ($record) => (float) ($record->hpp_total ?? 0))
                     ->money('IDR', locale: 'id')
                     ->sortable()
                     ->color('gray'),
 
                 TextColumn::make('laba_kotor')
                     ->label('Laba Kotor')
-                    ->getStateUsing(fn ($record) => (float)$record->penjualan - (float)$record->hpp_total)
+                    ->getStateUsing(fn ($record) => ((float)($record->penjualan ?? 0)) - ((float)($record->hpp_total ?? 0)))
                     ->money('IDR', locale: 'id')
                     ->sortable()
                     ->color('success')
@@ -108,8 +121,8 @@ class ProductReportsTable
                 TextColumn::make('margin')
                     ->label('Margin')
                     ->getStateUsing(function ($record) {
-                        $penjualan = (float)$record->penjualan;
-                        $laba = (float)$record->penjualan - (float)$record->hpp_total;
+                        $penjualan = (float)($record->penjualan ?? 0);
+                        $laba = $penjualan - (float)($record->hpp_total ?? 0);
                         return $penjualan > 0 ? round(($laba / $penjualan) * 100, 1) : 0;
                     })
                     ->suffix('%')
@@ -118,6 +131,7 @@ class ProductReportsTable
 
                 TextColumn::make('stok_akhir')
                     ->label('Stok Akhir')
+                    ->getStateUsing(fn ($record) => (float) ($record->stok_akhir ?? 0))
                     ->numeric()
                     ->sortable()
                     ->badge()

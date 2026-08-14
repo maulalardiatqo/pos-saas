@@ -8,11 +8,12 @@ use App\Filament\Tenant\Resources\Customers\Pages\ListCustomers;
 use App\Filament\Tenant\Resources\Customers\Schemas\CustomerForm;
 use App\Filament\Tenant\Resources\Customers\Tables\CustomersTable;
 use App\Models\Customer;
-use Filament\Facades\Filament; // Import untuk menangani fitur multi-tenancy
+use Filament\Facades\Filament;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder; // <-- Tambahan wajib untuk getEloquentQuery
 
 class CustomerResource extends Resource
 {
@@ -95,6 +96,30 @@ class CustomerResource extends Resource
             'delete'  => $record ? static::canDelete($record) : static::canViewAny(),
             default   => parent::can($action, $record),
         };
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Filter Data Multi-Outlet (Hanya tampilkan pelanggan yang sesuai)
+    |--------------------------------------------------------------------------
+    */
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+
+        // Jika Owner atau Platform Admin, bisa melihat SEMUA pelanggan dari SEMUA cabang
+        if ($user && ($user->isOwner() || $user->isPlatform())) {
+            return $query;
+        }
+
+        // Jika staf biasa: HANYA melihat Pelanggan Umum (null) ATAU pelanggan cabangnya sendiri
+        return $query->where(function ($q) use ($user) {
+            $q->whereNull('outlet_id')
+              ->orWhere('outlet_id', $user->outlet_id);
+        });
     }
 
     /*

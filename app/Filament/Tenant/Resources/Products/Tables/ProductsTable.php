@@ -11,6 +11,7 @@ use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Facades\Filament;
+
 class ProductsTable
 {
     public static function configure(Table $table): Table
@@ -22,11 +23,25 @@ class ProductsTable
                     ->searchable()
                     ->sortable()
                     ->weight('bold'),
+                    
                 TextColumn::make('item_type')
                     ->label('Jenis Product')
                     ->searchable()
                     ->sortable()
-                    ->weight('bold'),
+                    ->weight('bold')
+                    // --- MENGUBAH TAMPILAN TEKS ---
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'goods'   => 'Barang/Fisik',
+                        'service' => 'Jasa',
+                        default   => ucfirst($state),
+                    })
+                    // --- (OPSIONAL) MEMBERIKAN WARNA LABEL ---
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'goods'   => 'success', // Warna hijau
+                        'service' => 'warning', // Warna kuning/oranye
+                        default   => 'gray',
+                    }),
 
                 TextColumn::make('sku')
                     ->label('SKU')
@@ -50,13 +65,14 @@ class ProductsTable
                     ->money('IDR')
                     ->sortable(),
 
-                ToggleColumn::make('is_active')
-                    ->label('Aktif'),
+                // ToggleColumn::make('is_active')
+                //     ->label('Aktif'),
             ])
             ->filters([
                 SelectFilter::make('item_type')
+                    ->label('Jenis Produk') 
                     ->options([
-                        'goods'            => 'Barang',
+                        'goods'   => 'Barang/Fisik',
                         'service' => 'Jasa'
                     ]),
             ])

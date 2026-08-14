@@ -38,4 +38,11 @@ class TransactionItem extends Model
     public function company() { return $this->belongsTo(Company::class); }
     public function product() { return $this->belongsTo(Product::class); }
     public function uom() { return $this->belongsTo(Uom::class); }
+
+    // TAMBAHAN: Helper untuk mengambil nama item di Nota / Laporan
+    public function getDisplayNameAttribute()
+    {
+        // Jika ada nama manual, gunakan itu. Jika tidak, ambil dari relasi product.
+        return $this->item_name ?: ($this->product ? $this->product->name : 'Item Tidak Diketahui');
+    }
 }

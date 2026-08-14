@@ -7,10 +7,10 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Components\Hidden; 
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Builder; // <-- Tambahan untuk query builder
 
 class CustomerForm
 {
@@ -53,19 +53,21 @@ class CustomerForm
                             ->required()
                             ->maxLength(150),
 
-                        // INPUT OUTLET (Tampil untuk Owner, tersembunyi untuk staf)
+                        // INPUT OUTLET UNTUK SEMUA USER (Owner & Staf)
                         Select::make('outlet_id')
                             ->label('Pilih Outlet / Cabang')
-                            ->relationship('outlet', 'name')
-                            ->helperText('Kosongkan jika pelanggan ini bisa berbelanja di semua cabang (Global).')
+                            ->relationship('outlet', 'name', function (Builder $query) use ($isOwnerOrPlatform, $user) {
+                                // Jika BUKAN owner/platform, filter agar hanya muncul outlet user tersebut
+                                if (!$isOwnerOrPlatform) {
+                                    $query->where('id', $user->outlet_id);
+                                }
+                                return $query;
+                            })
+                            // Placeholder ini otomatis bernilai `null` jika dipilih dan dikirim ke database
+                            ->placeholder('Pelanggan Umum (Semua Outlet)')
+                            ->helperText('kosongkan jika pelanggan ini bisa berbelanja di semua cabang (Global).')
                             ->searchable()
-                            ->preload()
-                            ->visible($isOwnerOrPlatform),
-
-                        // INPUT HIDDEN OUTLET (Otomatis terisi jika yang login adalah staf)
-                        Hidden::make('outlet_id')
-                            ->default(fn () => !$isOwnerOrPlatform ? $user->outlet_id : null)
-                            ->visible(!$isOwnerOrPlatform),
+                            ->preload(),
 
                         TextInput::make('phone')
                             ->label('Nomor Telepon')
