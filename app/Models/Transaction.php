@@ -59,4 +59,8 @@ class Transaction extends Model
     {
         return $this->hasMany(Asset::class);
     }
+    public function payments()
+    {
+        return $this->hasMany(TransactionPayment::class, 'transaction_id')->orderBy('payment_date', 'asc');
+    }
 }

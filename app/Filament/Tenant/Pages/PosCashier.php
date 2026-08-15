@@ -51,6 +51,7 @@ class PosCashier extends Page
     public $customItemPrice = '';
 
     // PROPERTI CRM & PEMBAYARAN
+    public $customerSearch = ''; // State khusus ketikan cari pelanggan
     public $customerId = null;
     public $customerInfo = null; 
     public $voucherCode = ''; 
@@ -87,7 +88,6 @@ class PosCashier extends Page
                     ->label('Nama Lengkap')
                     ->required()
                     ->maxLength(150),
-                // PERBAIKAN ERROR 500: Gunakan ->options() bukan ->relationship() di dalam Action
                 Select::make('outlet_id')
                     ->label('Pilih Outlet / Cabang')
                     ->options(function () {
@@ -129,8 +129,7 @@ class PosCashier extends Page
                 ]);
 
                 // Auto select pelanggan yang baru dibuat
-                $this->customerId = $customer->id;
-                $this->updatedCustomerId($customer->id);
+                $this->selectCustomer($customer->id);
                 Notification::make()->title('Pelanggan berhasil ditambahkan!')->success()->send();
             });
     }
@@ -146,28 +145,24 @@ class PosCashier extends Page
         if (empty(trim($code))) return;
         $searchStr = strtolower(trim($code));
 
-        // Cari Produk di DB berdasarkan SKU atau Barcode (Menggunakan Subquery yang lebih aman)
         $dbProduct = Product::where('company_id', filament()->getTenant()->id)
             ->where(function($q) use ($searchStr) {
                 $q->where('sku', $searchStr)
                   ->orWhere('barcode', $searchStr)
-                  // Perbaikan Error: Menggunakan orWhereIn ke tabel product_uoms langsung
                   ->orWhereIn('id', function ($subQuery) use ($searchStr) {
                       $subQuery->select('product_id')
                                ->from('product_uoms')
                                ->where('barcode', $searchStr)
-                               ->whereNull('deleted_at'); // Jika Anda menggunakan SoftDeletes
+                               ->whereNull('deleted_at'); 
                   });
             })->first();
             
         if ($dbProduct) {
             $this->addToCart($dbProduct->id);
-            // Bersihkan input dan set fokus kembali di dalam function livewire
             $this->search = ''; 
             $this->dispatch('focus-search');
         } else {
             Notification::make()->title('Barcode/SKU tidak ditemukan!')->warning()->send();
-            // Bersihkan input dan set fokus kembali di dalam function livewire
             $this->search = ''; 
             $this->dispatch('focus-search');
         }
@@ -215,8 +210,6 @@ class PosCashier extends Page
             ])
             ->selectSub($latestStockSubquery, 'current_stock')
             ->when($this->search, function ($q) {
-                // Di Mode Scan, kita tidak memfilter list Grid, list grid dibiarkan tampil semua. 
-                // Grid filter hanya aktif saat mode "Cari Manual".
                 if (!$this->isScanMode) {
                     $q->where(function($query) {
                         $query->where('products.name', 'like', "%{$this->search}%")
@@ -230,6 +223,49 @@ class PosCashier extends Page
             ->get();
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | LOGIKA PENCARIAN & PEMILIHAN PELANGGAN DINAMIS
+    |--------------------------------------------------------------------------
+    */
+    public function getCustomerSearchResultsProperty()
+    {
+        if (empty(trim($this->customerSearch))) {
+            return [];
+        }
+
+        $keyword = trim(strtolower($this->customerSearch));
+        $outletId = auth()->user()->outlet_id;
+
+        return Customer::where('company_id', filament()->getTenant()->id)
+            ->where('is_active', true)
+            ->where(function ($query) use ($outletId) {
+                $query->whereNull('outlet_id')
+                      ->orWhere('outlet_id', $outletId);
+            })
+            ->where(function($q) use ($keyword) {
+                $q->whereRaw('LOWER(name) LIKE ?', ["%{$keyword}%"])
+                  ->orWhereRaw('LOWER(code) LIKE ?', ["%{$keyword}%"])
+                  ->orWhereRaw('LOWER(phone) LIKE ?', ["%{$keyword}%"]);
+            })
+            ->take(5) // Batasi 5 hasil agar ringan
+            ->get();
+    }
+
+    public function selectCustomer($id)
+    {
+        $this->customerId = $id;
+        $this->customerSearch = ''; // Kosongkan ketikan pencarian
+        $this->updatedCustomerId($id);
+    }
+
+    public function clearCustomer()
+    {
+        $this->customerId = null;
+        $this->customerSearch = '';
+        $this->updatedCustomerId(null);
+    }
+
     public function updatedCustomerId($value)
     {
         if ($value) {
@@ -241,21 +277,6 @@ class PosCashier extends Page
         $this->pointsToRedeem = 0;
         $this->claimedRewards = [];
         $this->syncAmountPaid();
-    }
-    
-    public function getCustomersProperty()
-    {
-        $tenantId = filament()->getTenant()?->id;
-        $user = auth()->user();
-        $outletId = $user->outlet_id;
-
-        return Customer::where('company_id', $tenantId)
-            ->where('is_active', true)
-            ->where(function ($query) use ($outletId) {
-                $query->whereNull('outlet_id')
-                      ->orWhere('outlet_id', $outletId);
-            })
-            ->get();
     }
 
     public function getAvailableRewardsProperty()
@@ -281,7 +302,6 @@ class PosCashier extends Page
     // FUNGSI TAMBAH ITEM MANUAL
     public function addCustomItemToCart()
     {
-        // Bersihkan titik ribuan dan pastikan string kosong menjadi null agar lolos validasi
         $price = preg_replace('/[^0-9]/', '', (string) $this->customItemPrice);
         $cost = preg_replace('/[^0-9]/', '', (string) $this->customItemCost);
 
@@ -465,7 +485,6 @@ class PosCashier extends Page
         $isService = ($this->cart[$productId]['item_type'] ?? 'goods') === 'service';
         $isBundle = in_array($this->cart[$productId]['product_type'] ?? 'standard', ['bundle', 'recipe']);
         
-        // Pengecekan stok hanya untuk item normal
         if (!$isService && !$isBundle && !isset($this->cart[$productId]['is_manual'])) {
             $currentStockRecord = Stock::where('product_id', $this->cart[$productId]['id'])->where('outlet_id', auth()->user()->outlet_id)->first();
             $currentStock = $currentStockRecord ? (float) $currentStockRecord->qty : 0;
@@ -910,7 +929,7 @@ class PosCashier extends Page
             Notification::make()->title('Transaksi Berhasil!')->success()->send();
             $this->dispatch('open-receipt', url: route('pos.receipt', $newTrx->id));
             $this->dispatch('close-payment-modal'); 
-            $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost']);
+            $this->reset(['cart', 'discount', 'amountPaid', 'customerSearch', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost']);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -929,7 +948,7 @@ class PosCashier extends Page
 
             Notification::make()->title('Pembayaran QRIS Berhasil!')->success()->send();
             $this->dispatch('open-receipt', url: route('pos.receipt', $transaction->id));
-            $this->reset(['cart', 'discount', 'amountPaid', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost']);
+            $this->reset(['cart', 'discount', 'amountPaid', 'customerSearch', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost']);
         }
     }
 
@@ -1063,3 +1082,4 @@ class PosCashier extends Page
     }
 }
 ?>
+

@@ -102,7 +102,7 @@
             .pos-btn-clear { font-size: 0.75rem; color: #ef4444; font-weight: 700; background: transparent; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.25rem; }
             
             .pos-customer-box { padding: 0.75rem 1rem; border-bottom: 1px solid var(--pos-border); background: var(--pos-bg-subpanel); }
-            .pos-customer-select { width: 100%; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.5rem 0.75rem; color: var(--pos-text-main); font-size: 0.75rem; font-weight: 600; outline: none; transition: border 0.2s; cursor: pointer; appearance: auto; }
+            .pos-customer-select { width: 100%; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.5rem 0.75rem; color: var(--pos-text-main); font-size: 0.75rem; font-weight: 600; outline: none; transition: border 0.2s; cursor: pointer; }
             .pos-customer-select:focus { border-color: #3b82f6; }
 
             .pos-cart-items-list { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
@@ -439,23 +439,61 @@
                         @endif
                     </div>
 
+                    <!-- ================= KOTAK PENCARIAN PELANGGAN (SEARCHABLE) ================= -->
                     <div class="pos-customer-box">
-                        <!-- TAMBAHAN TOMBOL "+" DI SEBELAH PELANGGAN -->
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <select wire:model.live="customerId" class="pos-customer-select" style="flex: 1;">
-                                <option value="">-- Pilih Pelanggan (Umum / Walk-in) --</option>
-                                @foreach($this->customers as $cust)
-                                    <option value="{{ $cust->id }}">{{ $cust->name }}</option>
-                                @endforeach
-                            </select>
                             
-                            <!-- Memanggil fungsi createCustomerAction dari Class (Action Modal) -->
+                            <div style="flex: 1; position: relative;" x-data="{ searchFocused: false }">
+                                @if(!$customerId)
+                                    <!-- Input Mode Pencarian -->
+                                    <input type="text"
+                                        wire:model.live.debounce.300ms="customerSearch"
+                                        @focus="searchFocused = true"
+                                        @blur="setTimeout(() => searchFocused = false, 200)"
+                                        class="pos-customer-select"
+                                        placeholder="-- Ketik Nama / No. HP / Kode Pelanggan --"
+                                        autocomplete="off"
+                                        style="width: 100%; border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 600;">
+
+                                   <!-- Hasil Pencarian Floating (Dropdown) -->
+                                    @if(!empty($customerSearch) && count($this->customerSearchResults) > 0)
+                                        <div x-show="searchFocused" style="position: absolute; top: 100%; left: 0; right: 0; background: var(--pos-bg-panel); border: 1px solid var(--pos-border-strong); border-radius: 8px; margin-top: 4px; box-shadow: var(--pos-shadow); z-index: 50; max-height: 250px; overflow-y: auto;">
+                                            @foreach($this->customerSearchResults as $cust)
+                                                <div wire:key="cust-{{ $cust->id }}" 
+                                                     wire:click="selectCustomer('{{ $cust->id }}')" 
+                                                     @mousedown.prevent
+                                                     style="padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--pos-border); cursor: pointer; transition: background 0.2s;" 
+                                                     onmouseover="this.style.background='var(--pos-bg-hover)'" 
+                                                     onmouseout="this.style.background='transparent'">
+                                                    <div style="font-weight: 700; color: var(--pos-text-main); font-size: 0.8rem;">{{ $cust->name }}</div>
+                                                    <div style="font-size: 0.7rem; color: var(--pos-text-muted);">{{ $cust->phone ?? 'No HP (-)' }} • {{ $cust->code }}</div>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @elseif(!empty($customerSearch))
+                                        <div x-show="searchFocused" style="position: absolute; top: 100%; left: 0; right: 0; background: var(--pos-bg-panel); border: 1px solid var(--pos-border-strong); border-radius: 8px; margin-top: 4px; box-shadow: var(--pos-shadow); z-index: 50; padding: 0.75rem; text-align: center; font-size: 0.75rem; color: var(--pos-text-muted);">
+                                            Pelanggan tidak ditemukan.
+                                        </div>
+                                    @endif
+                                @else
+                                    <!-- Mode Pelanggan Terpilih -->
+                                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; border-radius: 8px; padding: 0.5rem 0.75rem; width: 100%;">
+                                        <div>
+                                            <div style="font-size: 0.75rem; font-weight: 800; color: #3b82f6;">👤 {{ $customerInfo->name ?? 'Pelanggan' }}</div>
+                                            <div style="font-size: 0.65rem; color: var(--pos-text-muted);">{{ $customerInfo->phone ?? 'No HP (-)' }}</div>
+                                        </div>
+                                        <button wire:click="clearCustomer" style="background: transparent; border: none; color: #ef4444; font-weight: bold; cursor: pointer; padding: 0.2rem 0.5rem; font-size: 0.8rem;">✕ Batal</button>
+                                    </div>
+                                @endif
+                            </div>
+                            
+                            <!-- Tombol "+" Tambah Customer Baru -->
                             <div style="height: 38px;">
                                 {{ $this->createCustomerAction }}
                             </div>
                         </div>
                         
-                        <!-- INFORMASI MEMBERSHIP & POIN -->
+                        <!-- INFORMASI MEMBERSHIP & POIN (Tampil hanya jika ada pelanggan dipilih) -->
                         @if($customerInfo)
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; padding: 0.5rem; background: var(--pos-bg-hover); border-radius: 8px; border: 1px solid var(--pos-border-strong);">
                                 <div>
@@ -495,7 +533,6 @@
                                 </div>
                             </div>
                             @endif
-                            
                         @endif
                     </div>
                     
@@ -684,7 +721,7 @@
                     </div>
                 </div>
 
-               <!-- ================= MODAL ITEM CUSTOM ================= -->
+                <!-- ================= MODAL ITEM CUSTOM ================= -->
                 <div x-show="showCustomItemModal" class="pos-modal-overlay" style="display: none;" x-transition>
                     <div class="pos-modal-box" @click.away="showCustomItemModal = false" style="width: 400px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--pos-border); padding-bottom: 1rem; margin-bottom: 1rem;">

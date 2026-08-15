@@ -38,7 +38,7 @@ class ListFinanceReports extends ListRecords
 
         $outlets = $isOwner ? \App\Models\Outlet::where('company_id', $tenantId)->get() : collect();
 
-        // QUERY MENGGUNAKAN IN_OUT, GRAND_TOTAL, DAN ADMIN_FEE
+        // QUERY TRANSAKSI UTAMA (Mengecualikan 'invoice' dari query status completed biasa agar tidak dobel)
         $baseQ = function ($from, $to) use ($tenantId, $isOwner, $user) {
             return DB::table('transactions')
                 ->where('company_id', $tenantId)
@@ -50,33 +50,59 @@ class ListFinanceReports extends ListRecords
                 ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId));
         };
 
+        // QUERY KHUSUS PEMBAYARAN CICILAN / INVOICE (Membaca transaction_payments)
+        $basePaymentQ = function ($from, $to) use ($tenantId, $isOwner, $user) {
+            return DB::table('transaction_payments')
+                ->where('company_id', $tenantId)
+                ->where('payment_status', 'success')
+                ->whereBetween('payment_date', [$from, $to])
+                ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
+                ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId));
+        };
+
         $currQ = $baseQ($start, $end);
         $prevQ = $baseQ($prevStart, $prevEnd);
+
+        $currPayQ = $basePaymentQ($start, $end);
+        $prevPayQ = $basePaymentQ($prevStart, $prevEnd);
 
         // =======================================================
         // -- 1. KEUANGAN CURRENT (PERIODE INI) --
         // =======================================================
         
-        $currIn = (clone $currQ)->where('in_out', 'in')->sum('grand_total');
+        // TOTAL UANG MASUK REAL (Arus Kas IN) = Penjualan Tunai POS/Revenue + Seluruh Cicilan Invoice yang masuk di periode ini
+        $currInNonInvoice = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'invoice')->sum('grand_total');
+        $currInInvoicePayments = (clone $currPayQ)->sum('amount');
+        $currIn = $currInNonInvoice + $currInInvoicePayments;
         
-        // TOTAL UANG KELUAR REAL (Untuk Arus Kas) -> Tetap menghitung semua uang keluar termasuk PO
+        // TOTAL UANG KELUAR REAL (Untuk Arus Kas)
         $currOutTotal = (clone $currQ)->where('in_out', 'out')->sum('grand_total');
         
-        // BEBAN OPERASIONAL MURNI (Untuk Laba Rugi) -> MENGECUALIKAN PURCHASE ORDER / BELANJA STOK
+        // BEBAN OPERASIONAL MURNI (Untuk Laba Rugi)
         $currOutOps = (clone $currQ)->where('in_out', 'out')->whereNotIn('type', ['purchaseorder', 'purchase'])->sum('grand_total');
         
         $currAdminFee = (clone $currQ)->sum('admin_fee'); // TOTAL POTONGAN MIDTRANS
 
-        // Arus Kas Bersih (Uang Real) = Total Uang Masuk - Total Uang Keluar (termasuk PO) - Admin Fee
+        // Arus Kas Bersih (Net Cash)
         $currNetCash = $currIn - $currOutTotal - $currAdminFee;
 
-        // PENDAPATAN MURNI (Kecualikan Saldo Awal) -> Untuk Laba Rugi
-        $currPendapatan = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')->sum('grand_total');
+        // PENDAPATAN MURNI (Accrual Basis: Menghitung POS + Nilai Kontrak Invoice Penjualan tanpa peduli sudah lunas/belum)
+        $currPendapatanPOS = (clone $currQ)->where('in_out', 'in')->whereNotIn('type', ['opening_balance', 'invoice'])->sum('grand_total');
+        $currPendapatanInvoice = DB::table('transactions')
+            ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
+            ->whereBetween('created_at', [$start, $end])
+            ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
+            ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
+            ->sum('grand_total');
+
+        $currPendapatan = $currPendapatanPOS + $currPendapatanInvoice;
         
-        // HPP (Cost of Goods Sold) dari transaksi penjualan
+        // HPP (Cost of Goods Sold) dari transaksi penjualan POS & Invoice
         $itemCurr = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
-            ->where('transactions.company_id', $tenantId)->where('transactions.type', 'sale')->where('transactions.status', 'completed')->whereNull('transactions.deleted_at')
+            ->where('transactions.company_id', $tenantId)
+            ->whereIn('transactions.type', ['sale', 'invoice'])
+            ->whereNull('transactions.deleted_at')
             ->whereBetween('transactions.created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('transactions.outlet_id', $this->outletId))
@@ -85,30 +111,41 @@ class ListFinanceReports extends ListRecords
 
         $currHpp = (float) $itemCurr->hpp;
         
-        // PERBAIKAN AKUNTANSI: Beban Ops hanya menghitung pengeluaran murni (tanpa PO) + Admin Fee
         $currBebanOps = $currOutOps + $currAdminFee; 
         $currTotalBeban = $currHpp + $currBebanOps;
         
-        // Laba dihitung dari Pendapatan Murni dikurangi seluruh Beban Murni (HPP + Beban Ops tanpa PO)
+        // Laba Bersih
         $currLaba = $currPendapatan - $currTotalBeban;
         $currMargin = $currPendapatan > 0 ? ($currLaba / $currPendapatan) * 100 : 0;
 
         // =======================================================
-        // -- 2. KEUANGAN PREVIOUS (PERIODE LALU UNTUK PERSENTASE) --
+        // -- 2. KEUANGAN PREVIOUS (PERIODE LALU) --
         // =======================================================
-        
-        $prevIn = (clone $prevQ)->where('in_out', 'in')->sum('grand_total');
+        $prevInNonInvoice = (clone $prevQ)->where('in_out', 'in')->where('type', '!=', 'invoice')->sum('grand_total');
+        $prevInInvoicePayments = (clone $prevPayQ)->sum('amount');
+        $prevIn = $prevInNonInvoice + $prevInInvoicePayments;
+
         $prevOutTotal = (clone $prevQ)->where('in_out', 'out')->sum('grand_total');
         $prevOutOps = (clone $prevQ)->where('in_out', 'out')->whereNotIn('type', ['purchaseorder', 'purchase'])->sum('grand_total');
         $prevAdminFee = (clone $prevQ)->sum('admin_fee');
 
         $prevNetCash = $prevIn - $prevOutTotal - $prevAdminFee;
 
-        $prevPendapatan = (clone $prevQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')->sum('grand_total');
+        $prevPendapatanPOS = (clone $prevQ)->where('in_out', 'in')->whereNotIn('type', ['opening_balance', 'invoice'])->sum('grand_total');
+        $prevPendapatanInvoice = DB::table('transactions')
+            ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
+            ->whereBetween('created_at', [$prevStart, $prevEnd])
+            ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
+            ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
+            ->sum('grand_total');
+
+        $prevPendapatan = $prevPendapatanPOS + $prevPendapatanInvoice;
         
         $itemPrev = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
-            ->where('transactions.company_id', $tenantId)->where('transactions.type', 'sale')->where('transactions.status', 'completed')
+            ->where('transactions.company_id', $tenantId)
+            ->whereIn('transactions.type', ['sale', 'invoice'])
+            ->whereNull('transactions.deleted_at')
             ->whereBetween('transactions.created_at', [$prevStart, $prevEnd])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('transactions.outlet_id', $this->outletId))
@@ -124,17 +161,23 @@ class ListFinanceReports extends ListRecords
         $pct = fn($c, $p) => $p > 0 ? round((($c - $p) / $p) * 100, 1) : ($c > 0 ? 100 : 0);
 
         // =======================================================
-        // -- 3. CHART DATA (GRAFIK GARIS P&L) --
+        // -- 3. CHART DATA (GRAFIK GARIS P&L HARIAN) --
         // =======================================================
         $chartLabels = [];
         $chartPendapatan = [];
         $chartBeban = [];
         $chartLaba = [];
 
-        $trendIn = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')
+        $trendInPOS = (clone $currQ)->where('in_out', 'in')->whereNotIn('type', ['opening_balance', 'invoice'])
             ->selectRaw("DATE(created_at) as label, SUM(grand_total) as total")->groupBy('label')->pluck('total', 'label');
-            
-        // Trend Uang Keluar Ops (Tanpa PO)
+
+        $trendInInvoice = DB::table('transactions')
+            ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
+            ->whereBetween('created_at', [$start, $end])
+            ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
+            ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
+            ->selectRaw("DATE(created_at) as label, SUM(grand_total) as total")->groupBy('label')->pluck('total', 'label');
+
         $trendOutOps = (clone $currQ)->where('in_out', 'out')->whereNotIn('type', ['purchaseorder', 'purchase'])
             ->selectRaw("DATE(created_at) as label, SUM(grand_total) as total")->groupBy('label')->pluck('total', 'label');
 
@@ -143,7 +186,7 @@ class ListFinanceReports extends ListRecords
 
         $trendHpp = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
-            ->where('transactions.company_id', $tenantId)->where('transactions.type', 'sale')->where('transactions.status', 'completed')
+            ->where('transactions.company_id', $tenantId)->whereIn('transactions.type', ['sale', 'invoice'])->whereNull('transactions.deleted_at')
             ->whereBetween('transactions.created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('transactions.outlet_id', $this->outletId))
@@ -156,12 +199,14 @@ class ListFinanceReports extends ListRecords
             $dateStr = $cursor->toDateString();
             $chartLabels[] = $cursor->format('d M');
             
-            $dIn = (float) ($trendIn[$dateStr] ?? 0);
+            $dInPOS = (float) ($trendInPOS[$dateStr] ?? 0);
+            $dInInv = (float) ($trendInInvoice[$dateStr] ?? 0);
+            $dIn = $dInPOS + $dInInv;
+
             $dOutOps = (float) ($trendOutOps[$dateStr] ?? 0);
             $dHpp = (float) ($trendHpp[$dateStr] ?? 0); 
             $dAdmin = (float) ($trendAdminFee[$dateStr] ?? 0); 
             
-            // Pengeluaran harian murni (tanpa PO)
             $dailyBeban = $dOutOps + $dHpp + $dAdmin; 
             
             $chartPendapatan[] = $dIn;
@@ -174,7 +219,7 @@ class ListFinanceReports extends ListRecords
         // =======================================================
         // -- 4. DONUT CHART (PROPORSI PEMASUKAN) --
         // =======================================================
-        $proporsiData = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'opening_balance')
+        $proporsiData = (clone $currQ)->where('in_out', 'in')->whereNotIn('type', ['opening_balance', 'invoice'])
             ->selectRaw("type, SUM(grand_total) as total")
             ->groupBy('type')->orderByDesc('total')->get();
 
@@ -187,13 +232,22 @@ class ListFinanceReports extends ListRecords
             $label = match($row->type) { 
                 'sale' => 'Penjualan POS', 
                 'revenue' => 'Pemasukan Ekstra', 
-                'invoice' => 'Pembayaran Tagihan',
                 default => strtoupper($row->type) 
             };
             $proporsi[] = [
                 'label' => $label,
                 'val' => (float)$row->total,
                 'color' => $colors[$i % count($colors)]
+            ];
+        }
+
+        // Masukkan Penjualan Invoice ke Donut Chart jika ada
+        if ($currPendapatanInvoice > 0) {
+            $totalProporsi += $currPendapatanInvoice;
+            $proporsi[] = [
+                'label' => 'Invoice Penjualan (Tempo)',
+                'val' => (float)$currPendapatanInvoice,
+                'color' => '#8b5cf6'
             ];
         }
 
@@ -221,7 +275,7 @@ class ListFinanceReports extends ListRecords
                     'adminFee'   => $currAdminFee, 
                     'labaBersih' => $currLaba,
                     'cashIn'     => $currIn,
-                    'cashOut'    => $currOutTotal, // Arus Kas Out tetap menampilkan seluruh kas keluar
+                    'cashOut'    => $currOutTotal,
                     'netCash'    => $currNetCash,
                 ],
                 'prev' => [

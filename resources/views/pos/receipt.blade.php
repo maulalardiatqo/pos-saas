@@ -163,7 +163,8 @@
     <table>
         @foreach($transaction->items as $item)
             <tr>
-                <td colspan="3"><span class="item-name">{{ $item->product->name ?? 'Produk' }}</span></td>
+                <!-- PERBAIKAN PADA NAMA ITEM: Panggil item_name untuk mengakomodasi Item Custom -->
+                <td colspan="3"><span class="item-name">{{ $item->item_name ?? $item->product->name ?? 'Item Custom' }}</span></td>
             </tr>
             <tr class="item-detail">
                 <td class="text-left" width="30%">{{ $item->qty }} {{ $item->uom->name ?? 'Pcs' }}</td>

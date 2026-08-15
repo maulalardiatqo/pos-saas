@@ -5,7 +5,7 @@ namespace App\Filament\Tenant\Resources\Transactions;
 use App\Filament\Tenant\Resources\Transactions\Pages;
 use App\Models\Transaction;
 use App\Models\StockMovement;
-use App\Models\Stock; // <-- IMPORT MODEL STOCK
+use App\Models\Stock; 
 use App\Models\Account; 
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -130,6 +130,17 @@ class TransactionResource extends Resource
                     })
             ])
             ->actions([
+                // ========================================================
+                // TOMBOL CETAK NOTA KUSTOM DENGAN KONDISI HIDDEN
+                // ========================================================
+                Action::make('print')
+                    ->label('Cetak')
+                    ->icon('heroicon-o-printer')
+                    ->color('info')
+                    ->url(fn (Transaction $record) => route('pos.receipt', $record->id))
+                    ->openUrlInNewTab()
+                    ->hidden(fn (Transaction $record) => $record->status === 'cancelled'), // Sembunyikan jika VOID
+
                 ViewAction::make()->label('Detail'),
                 
                 Action::make('void')
@@ -150,6 +161,11 @@ class TransactionResource extends Resource
 
                             // 2. KEMBALIKAN STOK (MENGGUNAKAN TABEL STOCKS & LOCKING)
                             foreach ($record->items as $item) {
+                                // PERBAIKAN: Abaikan pengembalian stok jika item custom (tidak memiliki product_id)
+                                if (empty($item->product_id)) {
+                                    continue;
+                                }
+
                                 $product = $item->product;
                                 if (!$product) continue;
 
@@ -297,9 +313,9 @@ class TransactionResource extends Resource
                         Repeater::make('items')
                             ->relationship('items')
                             ->schema([
-                                Select::make('product_id')
-                                    ->relationship('product', 'name')
-                                    ->label('Produk')
+                                // PERBAIKAN: Menggunakan item_name agar Item Custom yang tidak punya product_id tetap muncul namanya
+                                TextInput::make('item_name')
+                                    ->label('Nama Item / Produk')
                                     ->columnSpan(3),
                                     
                                 TextInput::make('qty')

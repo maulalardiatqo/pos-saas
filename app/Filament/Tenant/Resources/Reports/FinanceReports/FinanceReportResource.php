@@ -158,7 +158,10 @@ class FinanceReportResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()
-            ->where('status', 'completed')
+            ->where(function ($q) {
+                $q->where('status', 'completed')
+                  ->orWhere('type', 'invoice');
+            })
             ->whereNotNull('in_out')
             ->whereNull('deleted_at'); 
         
