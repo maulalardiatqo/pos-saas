@@ -59,10 +59,11 @@ class StockBalanceResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        // KITA BERSIHKAN SUBQUERY LAMA DARI SINI
-        // Karena logic pemanggilan stok per cabang/outlet sudah diurus di file Table
         return parent::getEloquentQuery()
             ->withoutGlobalScopes([ SoftDeletingScope::class ])
-            ->where('item_type', 'goods');
+            // Hanya tampilkan Barang Fisik (Bukan Jasa)
+            ->where('item_type', 'goods')
+            // KUNCI PERBAIKAN: Hanya tampilkan Produk Standar (Mengecualikan Bundle / Recipe)
+            ->where('product_type', 'standard');
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Filament\Tenant\Pages;
 
 use Filament\Pages\Page;
+use Filament\Facades\Filament;
 use App\Models\Product;
 use App\Models\Category;
 use App\Models\StockMovement;
@@ -84,6 +85,18 @@ class PosCashier extends Page
             ->tooltip('Tambah Pelanggan Baru')
             ->extraAttributes(['style' => 'height: 38px; width: 38px; display: flex; align-items: center; justify-content: center; border-radius: 8px; margin-left: 0.5rem;'])
             ->form([
+                TextInput::make('code')
+                            ->label('Kode Pelanggan')
+                            ->required()
+                            ->maxLength(50)
+                            ->unique(
+                                ignoreRecord: true,
+                                modifyRuleUsing: fn ($rule) => $rule->where(
+                                    'company_id',
+                                    Filament::getTenant()->id
+                                )
+                            )
+                            ->default(fn () => 'CUST-' . strtoupper(str()->random(5))),
                 TextInput::make('name')
                     ->label('Nama Lengkap')
                     ->required()
@@ -752,6 +765,9 @@ class PosCashier extends Page
     // =========================================================================
     // SUBMIT TRANSACTION
     // =========================================================================
+    // =========================================================================
+    // SUBMIT TRANSACTION
+    // =========================================================================
     public function submitTransaction()
     {
         if (empty($this->cart)) {
@@ -780,8 +796,23 @@ class PosCashier extends Page
                     $components = DB::table('product_components')->where('parent_product_id', $item['id'])->get();
                     foreach ($components as $comp) {
                         $child = DB::table('products')->where('id', $comp->child_product_id)->first();
+                        
                         if ($child && $child->item_type === 'goods') {
-                            $qtyNeeded = $item['qty'] * $item['conversion_factor'] * (float)$comp->quantity;
+                            // KUNCI PERBAIKAN 1: Cari faktor konversi dari UoM komponen
+                            $compFactor = 1;
+                            if (!empty($comp->uom_id)) {
+                                $uomPivot = DB::table('product_uoms')
+                                    ->where('product_id', $comp->child_product_id)
+                                    ->where('uom_id', $comp->uom_id)
+                                    ->whereNull('deleted_at')
+                                    ->first();
+                                if ($uomPivot) {
+                                    $compFactor = (float) $uomPivot->conversion_factor;
+                                }
+                            }
+
+                            // Rumus: Qty Beli x Konversi Beli x (Qty Komponen x Konversi Komponen)
+                            $qtyNeeded = $item['qty'] * $item['conversion_factor'] * ((float)$comp->quantity * $compFactor);
                             $requiredStocks[$child->id] = ($requiredStocks[$child->id] ?? 0) + $qtyNeeded;
                         }
                     }
@@ -1037,7 +1068,21 @@ class PosCashier extends Page
                 foreach ($components as $comp) {
                     $child = DB::table('products')->where('id', $comp->child_product_id)->first();
                     if ($child && $child->item_type === 'goods') {
-                        $qtyToDeduct = $trxItem->base_qty * (float)$comp->quantity;
+                        // KUNCI PERBAIKAN 2: Cari faktor konversi UoM untuk stok akhir
+                        $compFactor = 1;
+                        if (!empty($comp->uom_id)) {
+                            $uomPivot = DB::table('product_uoms')
+                                ->where('product_id', $comp->child_product_id)
+                                ->where('uom_id', $comp->uom_id)
+                                ->whereNull('deleted_at')
+                                ->first();
+                            if ($uomPivot) {
+                                $compFactor = (float) $uomPivot->conversion_factor;
+                            }
+                        }
+
+                        // Qty Dibeli * Konversi UoM Beli * (Qty Bahan * Konversi UoM Bahan)
+                        $qtyToDeduct = $trxItem->base_qty * ((float)$comp->quantity * $compFactor);
                         
                         $stockRecord = Stock::firstOrCreate(
                             ['company_id' => $companyId, 'outlet_id' => $outletId, 'product_id' => $comp->child_product_id],

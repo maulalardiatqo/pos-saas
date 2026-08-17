@@ -123,16 +123,16 @@ class PurchaseOrderForm
                                             ->placeholder('Supplier Umum (Semua Cabang)')
                                             ->searchable()
                                             ->preload(),
-                                            
+                                        
                                         TextInput::make('contact_person')
                                             ->label('Nama Kontak (PIC)')
                                             ->maxLength(100),
-                                            
+                                        
                                         TextInput::make('phone')
                                             ->label('Nomor Telepon')
                                             ->tel()
                                             ->maxLength(20),
-                                            
+                                        
                                         \Filament\Forms\Components\Textarea::make('address')
                                             ->label('Alamat Lengkap')
                                             ->rows(2)
@@ -236,7 +236,8 @@ class PurchaseOrderForm
                                     ->relationship(
                                         name: 'product', 
                                         titleAttribute: 'name',
-                                        modifyQueryUsing: fn ($query) => $query->where('item_type', '!=', 'service')
+                                        // PERBAIKAN: Hanya memunculkan produk bertipe 'standard' (Mengecualikan 'service', 'bundle', dan 'recipe')
+                                        modifyQueryUsing: fn ($query) => $query->where('product_type', 'standard')->where('item_type', 'goods')
                                     )
                                     ->label('Item / Produk')
                                     ->searchable()

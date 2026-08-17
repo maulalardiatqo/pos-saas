@@ -14,6 +14,17 @@ class CreateProduct extends CreateRecord
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         $data['company_id'] = filament()->getTenant()->id;
+        
+        // KUNCI PERBAIKAN: Jika form disubmit namun Fitur/Section disembunyikan,
+        // Pastikan nilai default DB tetap terisi agar tidak terjadi SQL Error
+        $data['product_type'] = $data['product_type'] ?? 'standard';
+        
+        // Pembersihan khusus untuk Jasa agar tidak ada data hantu (ghost data)
+        if (($data['item_type'] ?? 'goods') === 'service') {
+            $data['base_uom_id']  = null;
+            $data['has_variants'] = false;
+        }
+        
         return $data;
     }
 
@@ -21,6 +32,7 @@ class CreateProduct extends CreateRecord
     {
         $product = $this->record;
 
+        // Proses ini akan aman dan di-skip otomatis jika Jasa (karena base_uom_id = null)
         if ($product->base_uom_id) {
             
             $baseUomRecord = DB::table('product_uoms')

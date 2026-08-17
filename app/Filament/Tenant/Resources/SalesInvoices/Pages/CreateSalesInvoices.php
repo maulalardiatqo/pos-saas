@@ -18,13 +18,8 @@ class CreateSalesInvoice extends CreateRecord
 {
     protected static string $resource = SalesInvoiceResource::class;
 
-    // =========================================================================
-    // PERBAIKAN 1: VALIDASI STOK (Menggunakan $this->data mentah)
-    // =========================================================================
     protected function beforeCreate(): void
     {
-        // KUNCI UTAMA: Kita memanggil $this->data langsung untuk menghindari 
-        // pemfilteran otomatis dari Filament pada field Repeater Relationship.
         $data = $this->data; 
         
         $outletId = $data['outlet_id'] ?? auth()->user()->outlet_id;
@@ -38,18 +33,27 @@ class CreateSalesInvoice extends CreateRecord
                 $product = Product::find($productId);
                 if (!$product || $product->item_type === 'service') continue;
 
-                $isBundle = in_array($product->product_type, ['bundle', 'recipe']);
+                // --- PERBAIKAN: Selalu Query Conversion Factor (Anti Front-End Bug) ---
+                $factor = 1;
+                if (!empty($item['uom_id'])) {
+                    $uomPivot = DB::table('product_uoms')->where('product_id', $productId)->where('uom_id', $item['uom_id'])->first();
+                    if ($uomPivot) $factor = (float) $uomPivot->conversion_factor;
+                }
                 
                 $qty = (float) ($item['qty'] ?? 1);
-                $factor = (float) ($item['conversion_factor'] ?? 1);
+                $isBundle = in_array($product->product_type, ['bundle', 'recipe']);
                 
                 if ($isBundle) {
                     $components = DB::table('product_components')->where('parent_product_id', $product->id)->get();
                     foreach ($components as $comp) {
                         $child = DB::table('products')->where('id', $comp->child_product_id)->first();
                         if ($child && $child->item_type === 'goods') {
-                            $qtyNeeded = $qty * $factor * (float)$comp->quantity;
-                            // Akumulasi jika ada item yang diinput 2 baris (berulang)
+                            $compFactor = 1;
+                            if (!empty($comp->uom_id)) {
+                                $childUom = DB::table('product_uoms')->where('product_id', $child->id)->where('uom_id', $comp->uom_id)->first();
+                                if ($childUom) $compFactor = (float) $childUom->conversion_factor;
+                            }
+                            $qtyNeeded = $qty * $factor * ((float)$comp->quantity * $compFactor);
                             $requiredStocks[$child->id] = ($requiredStocks[$child->id] ?? 0) + $qtyNeeded;
                         }
                     }
@@ -68,7 +72,6 @@ class CreateSalesInvoice extends CreateRecord
             if ($totalNeeded > $stockAvailable) {
                 $prodName = Product::where('id', $productId)->value('name');
                 
-                // Munculkan notifikasi merah yang menempel (persistent)
                 Notification::make()
                     ->title("Peringatan: Stok Tidak Cukup!")
                     ->body("Barang '{$prodName}' butuh {$totalNeeded}, sedangkan stok hanya tersedia {$stockAvailable}.")
@@ -76,7 +79,6 @@ class CreateSalesInvoice extends CreateRecord
                     ->persistent()
                     ->send();
                 
-                // Hentikan proses simpan seketika, kembalikan user ke form!
                 $this->halt();
             }
         }
@@ -87,7 +89,7 @@ class CreateSalesInvoice extends CreateRecord
         $amountPaid = (float)($data['amount_paid'] ?? 0);
         $grandTotal = (float)($data['grand_total'] ?? 0);
         
-        $data['amount_change'] = $amountPaid - $grandTotal; // Minus berarti hutang
+        $data['amount_change'] = $amountPaid - $grandTotal;
         $data['status'] = $amountPaid >= $grandTotal ? 'completed' : 'pending';
         
         return $data;
@@ -97,7 +99,6 @@ class CreateSalesInvoice extends CreateRecord
     {
         $transaction = $this->record;
 
-        // 1. CATAT PEMBAYARAN DP (UANG MUKA)
         if ($transaction->amount_paid > 0) {
             TransactionPayment::create([
                 'company_id'     => $transaction->company_id,
@@ -117,9 +118,6 @@ class CreateSalesInvoice extends CreateRecord
             }
         }
 
-        // =========================================================================
-        // PERBAIKAN 2: LOGIKA LOYALTY POINTS (Sudah persis dengan POS)
-        // =========================================================================
         $company = filament()->getTenant();
 
         if ($transaction->customer_id && $company->is_loyalty_enabled && $company->loyalty_spend_amount > 0) {
@@ -136,14 +134,11 @@ class CreateSalesInvoice extends CreateRecord
                     'description'  => 'Poin dari Penjualan Invoice: ' . $transaction->transaction_number,
                 ]);
 
-                // Tambahkan poin ke profil pelanggan
                 Customer::where('id', $transaction->customer_id)->increment('points_balance', $earnedPoints);
             }
         }
 
-        // =========================================================================
-        // 3. PEMOTONGAN STOK FISIK
-        // =========================================================================
+        // PEMOTONGAN STOK FISIK
         foreach ($transaction->items as $item) {
             if (!$item->product_id) continue;
             
@@ -157,7 +152,13 @@ class CreateSalesInvoice extends CreateRecord
                 foreach ($components as $comp) {
                     $child = DB::table('products')->where('id', $comp->child_product_id)->first();
                     if ($child && $child->item_type === 'goods') {
-                        $qtyToDeduct = $item->base_qty * (float)$comp->quantity;
+                        $compFactor = 1;
+                        if (!empty($comp->uom_id)) {
+                            $uomPivot = DB::table('product_uoms')->where('product_id', $comp->child_product_id)->where('uom_id', $comp->uom_id)->first();
+                            if ($uomPivot) $compFactor = (float) $uomPivot->conversion_factor;
+                        }
+
+                        $qtyToDeduct = $item->base_qty * ((float)$comp->quantity * $compFactor);
                         
                         $stockRecord = Stock::firstOrCreate(
                             ['company_id' => $transaction->company_id, 'outlet_id' => $transaction->outlet_id, 'product_id' => $comp->child_product_id],
@@ -185,7 +186,8 @@ class CreateSalesInvoice extends CreateRecord
                 $stockRecord->lockForUpdate();
                 
                 $balanceBefore = (float) $stockRecord->qty;
-                $balanceAfter = $balanceBefore - $item->base_qty;
+                // Karena kita sudah enforce di server, $item->base_qty SEKARANG PASTI bernilai 12 (jika Lusin)
+                $balanceAfter = $balanceBefore - $item->base_qty; 
                 $stockRecord->update(['qty' => $balanceAfter]);
 
                 StockMovement::create([

@@ -232,6 +232,35 @@ class SalesInvoiceForm
                         ->live()
                         ->afterStateUpdated(fn (Get $get, Set $set) => self::updateTotals($get, $set))
                         ->deleteAction(fn ($action) => $action->after(fn (Get $get, Set $set) => self::updateTotals($get, $set)))
+                        // ====================================================================
+                        // PERBAIKAN: BACKEND ENFORCEMENT UNTUK BASE_QTY & COST_PRICE (HPP)
+                        // ====================================================================
+                        ->mutateRelationshipDataBeforeCreateUsing(function (array $data): array {
+                            $factor = 1;
+                            if (!empty($data['uom_id'])) {
+                                $factor = DB::table('product_uoms')->where('product_id', $data['product_id'])->where('uom_id', $data['uom_id'])->value('conversion_factor') ?? 1;
+                            }
+                            $data['conversion_factor'] = (float) $factor;
+                            $data['base_qty'] = ((float) ($data['qty'] ?? 1)) * $factor;
+                            
+                            $baseCost = DB::table('products')->where('id', $data['product_id'])->value('cost_price') ?? 0;
+                            $data['cost_price'] = ((float) $baseCost) * $factor;
+                            
+                            return $data;
+                        })
+                        ->mutateRelationshipDataBeforeSaveUsing(function (array $data): array {
+                            $factor = 1;
+                            if (!empty($data['uom_id'])) {
+                                $factor = DB::table('product_uoms')->where('product_id', $data['product_id'])->where('uom_id', $data['uom_id'])->value('conversion_factor') ?? 1;
+                            }
+                            $data['conversion_factor'] = (float) $factor;
+                            $data['base_qty'] = ((float) ($data['qty'] ?? 1)) * $factor;
+                            
+                            $baseCost = DB::table('products')->where('id', $data['product_id'])->value('cost_price') ?? 0;
+                            $data['cost_price'] = ((float) $baseCost) * $factor;
+                            
+                            return $data;
+                        })
                         ->schema([
                             Select::make('product_id')
                                 ->relationship('product', 'name', fn ($query) => $query->where('item_type', '!=', 'service'))
@@ -249,10 +278,13 @@ class SalesInvoiceForm
                                         if ($product) {
                                             $set('item_name', $product->name);
                                             $set('_base_price', $product->base_price);
+                                            $set('_base_cost_price', $product->cost_price);
                                             $set('cost_price', $product->cost_price);
                                         }
                                     } else {
                                         $set('_base_price', 0);
+                                        $set('_base_cost_price', 0);
+                                        $set('cost_price', 0);
                                     }
                                 })
                                 ->columnSpan(3),
@@ -305,6 +337,9 @@ class SalesInvoiceForm
                                         
                                         $qty = (float) $get('qty') ?: 1;
                                         $set('base_qty', $qty * $factor);
+
+                                        $baseCost = (float) ($get('_base_cost_price') ?? 0);
+                                        $set('cost_price', $baseCost * $factor);
 
                                         $suggestedPrice = $pivotData && $pivotData->selling_price > 0 
                                             ? (float) $pivotData->selling_price 
@@ -362,6 +397,7 @@ class SalesInvoiceForm
                             Hidden::make('base_qty')->default(1)->dehydrated(),
                             Hidden::make('cost_price')->default(0)->dehydrated(),
                             Hidden::make('_base_price')->dehydrated(false),
+                            Hidden::make('_base_cost_price')->dehydrated(false),
                             Hidden::make('discount_rate')->default(0),
                             Hidden::make('tax_rate')->default(0),
                             Hidden::make('tax_amount')->default(0),

@@ -7,7 +7,6 @@ use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Facades\Filament;
@@ -29,19 +28,39 @@ class ProductsTable
                     ->searchable()
                     ->sortable()
                     ->weight('bold')
-                    // --- MENGUBAH TAMPILAN TEKS ---
                     ->formatStateUsing(fn (string $state): string => match ($state) {
                         'goods'   => 'Barang/Fisik',
                         'service' => 'Jasa',
                         default   => ucfirst($state),
                     })
-                    // --- (OPSIONAL) MEMBERIKAN WARNA LABEL ---
                     ->badge()
                     ->color(fn (string $state): string => match ($state) {
-                        'goods'   => 'success', // Warna hijau
-                        'service' => 'warning', // Warna kuning/oranye
+                        'goods'   => 'success',
+                        'service' => 'warning',
                         default   => 'gray',
                     }),
+
+                TextColumn::make('product_type')
+                    ->label('Tipe Produk')
+                    ->searchable()
+                    ->sortable()
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'standard' => 'Standar',
+                        'bundle'   => 'Bundle (Paket)',
+                        'recipe'   => 'Resep (BOM)',
+                        default    => ucfirst($state),
+                    })
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'standard' => 'gray',
+                        'bundle'   => 'info',
+                        'recipe'   => 'primary',
+                        default    => 'gray',
+                    })
+                    ->visible(fn () => 
+                        data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.bundle') === true || 
+                        data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.recipe') === true
+                    ),
 
                 TextColumn::make('sku')
                     ->label('SKU')
@@ -50,23 +69,18 @@ class ProductsTable
                 TextColumn::make('barcode')
                     ->label('Barcode')
                     ->searchable()
-                    // PENGECEKAN FITUR: BARCODE
                     ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.barcode') === true),
 
                 TextColumn::make('category.name')
                     ->label('Kategori')
                     ->searchable()
                     ->sortable()
-                    // PENGECEKAN FITUR: CATEGORY
                     ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.category') === true),
 
                 TextColumn::make('base_price')
                     ->label('Harga Jual')
                     ->money('IDR')
                     ->sortable(),
-
-                // ToggleColumn::make('is_active')
-                //     ->label('Aktif'),
             ])
             ->filters([
                 SelectFilter::make('item_type')
@@ -74,6 +88,15 @@ class ProductsTable
                     ->options([
                         'goods'   => 'Barang/Fisik',
                         'service' => 'Jasa'
+                    ]),
+                
+                // TAMBAHAN: FILTER PRODUCT TYPE (TIPE PRODUK)
+                SelectFilter::make('product_type')
+                    ->label('Tipe Produk') 
+                    ->options([
+                        'standard' => 'Produk Standar (Biasa)',
+                        'bundle'   => 'Paket Gabungan (Bundle)',
+                        'recipe'   => 'Menu dengan Resep (BOM)'
                     ]),
             ])
             ->recordActions([

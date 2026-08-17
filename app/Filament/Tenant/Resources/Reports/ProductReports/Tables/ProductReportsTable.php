@@ -26,33 +26,37 @@ class ProductReportsTable
                 
                 $query->where('products.company_id', $tenantId);
 
-                // =======================================================
-                // PERBAIKAN 1: BUAT BASE QUERY MURNI TANPA 'SELECT'
-                // =======================================================
                 $baseTrxSub = DB::table('transaction_items')
                     ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
                     ->whereColumn('transaction_items.product_id', 'products.id')
-                    ->where('transactions.type', 'sale')
-                    ->where('transactions.status', 'completed')
-                    ->whereBetween('transactions.created_at', [$startDate, $endDate]);
+                    // Membaca POS (sale) dan Invoice (invoice)
+                    ->whereIn('transactions.type', ['sale', 'invoice'])
+                    // Membaca Lunas (completed) dan Belum Lunas (pending)
+                    ->whereIn('transactions.status', ['completed', 'pending'])
+                    ->whereBetween('transactions.created_at', [$startDate, $endDate])
+                    ->whereNull('transactions.deleted_at'); // Mencegah data terhapus ikut dihitung
                     
                 if ($outletId) {
                     $baseTrxSub->where('transactions.outlet_id', $outletId);
                 }
 
-                // =======================================================
-                // KLONING BASE QUERY AGAR KOLOM TIDAK BERTUMPUK (ERROR)
-                // =======================================================
-                // --- SUBQUERY TERJUAL (Kuantitas) ---
-                $terjualSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.qty), 0)');
-
-                // --- SUBQUERY PENJUALAN (Omset) ---
+                $terjualSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.base_qty), 0)');
                 $penjualanSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.subtotal), 0)');
 
-                // --- SUBQUERY HPP (Modal) ---
+                $hppSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.qty * transaction_items.cost_price), 0)');
+                if ($outletId) {
+                    $baseTrxSub->where('transactions.outlet_id', $outletId);
+                }
+
+                // =======================================================
+                // PERBAIKAN: MENGGUNAKAN 'base_qty' AGAR SATUAN LUSIN DIHITUNG SEBAGAI 12 PCS
+                // =======================================================
+                $terjualSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.base_qty), 0)');
+
+                $penjualanSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.subtotal), 0)');
+
                 $hppSub = (clone $baseTrxSub)->selectRaw('COALESCE(SUM(transaction_items.qty * transaction_items.cost_price), 0)');
 
-                // --- SUBQUERY STOK AKHIR ---
                 $stokSub = DB::table('stocks')
                     ->whereColumn('stocks.product_id', 'products.id')
                     ->selectRaw('COALESCE(SUM(stocks.qty), 0)');
@@ -61,7 +65,6 @@ class ProductReportsTable
                     $stokSub->where('stocks.outlet_id', $outletId);
                 }
 
-                // Masukkan semua subquery ke dalam query utama Product
                 $query->select('products.*')
                     ->selectSub($terjualSub, 'terjual')
                     ->selectSub($penjualanSub, 'penjualan')
@@ -69,25 +72,10 @@ class ProductReportsTable
                     ->selectSub($stokSub, 'stok_akhir');
             })
             ->columns([
-                ImageColumn::make('image_url')
-                    ->label('Foto')
-                    ->square()
-                    ->defaultImageUrl('https://placehold.co/100'),
+                ImageColumn::make('image_url')->label('Foto')->square()->defaultImageUrl('https://placehold.co/100'),
+                TextColumn::make('name')->label('Produk')->searchable()->sortable()->weight('bold')->description(fn ($record) => $record->sku ?? 'No SKU'),
+                TextColumn::make('category.name')->label('Kategori')->sortable(),
 
-                TextColumn::make('name')
-                    ->label('Produk')
-                    ->searchable()
-                    ->sortable()
-                    ->weight('bold')
-                    ->description(fn ($record) => $record->sku ?? 'No SKU'),
-
-                TextColumn::make('category.name')
-                    ->label('Kategori')
-                    ->sortable(),
-
-                // =======================================================
-                // PERBAIKAN 2: PAKSA NILAI NULL MENJADI 0 DENGAN getStateUsing
-                // =======================================================
                 TextColumn::make('terjual')
                     ->label('Terjual')
                     ->getStateUsing(fn ($record) => (float) ($record->terjual ?? 0))

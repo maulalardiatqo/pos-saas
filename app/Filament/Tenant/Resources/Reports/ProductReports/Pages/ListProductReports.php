@@ -59,8 +59,9 @@ class ListProductReports extends ListRecords
                 ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
                 ->join('products', 'transaction_items.product_id', '=', 'products.id')
                 ->where('transactions.company_id', $tenantId)
-                ->where('transactions.type', 'sale')
-                ->where('transactions.status', 'completed')
+                ->whereIn('transactions.type', ['sale', 'invoice'])
+                ->whereIn('transactions.status', ['completed', 'pending'])
+                ->whereNull('transactions.deleted_at')
                 ->whereBetween($this->dateColumn, [$from, $to])
                 ->when(!$isOwner, fn ($q) => $q->where('transactions.outlet_id', $user->outlet_id))
                 ->when($isOwner && $this->outletId, fn ($q) => $q->where('transactions.outlet_id', $this->outletId))
@@ -74,13 +75,13 @@ class ListProductReports extends ListRecords
 
         // KPI UTAMA
         $kpiCurrent = (clone $currentQuery)->select(
-            DB::raw('SUM(transaction_items.qty) as total_qty'),
+            DB::raw('SUM(transaction_items.base_qty) as total_qty'),
             DB::raw('SUM(transaction_items.subtotal) as total_revenue'),
             DB::raw('SUM(transaction_items.subtotal - (transaction_items.cost_price * transaction_items.qty)) as total_profit')
         )->first();
 
         $kpiPrev = (clone $previousQuery)->select(
-            DB::raw('SUM(transaction_items.qty) as total_qty'),
+            DB::raw('SUM(transaction_items.base_qty) as total_qty'),
             DB::raw('SUM(transaction_items.subtotal) as total_revenue'),
             DB::raw('SUM(transaction_items.subtotal - (transaction_items.cost_price * transaction_items.qty)) as total_profit')
         )->first();
@@ -108,7 +109,7 @@ class ListProductReports extends ListRecords
         $dailyTrend = (clone $currentQuery)
             ->select(
                 DB::raw('DATE(transactions.created_at) as date'),
-                DB::raw('SUM(transaction_items.qty) as qty'),
+                DB::raw('SUM(transaction_items.base_qty) as qty'), // <--- UBAH INI
                 DB::raw('SUM(transaction_items.subtotal) as rev'),
                 DB::raw('SUM(transaction_items.subtotal - (transaction_items.cost_price * transaction_items.qty)) as profit')
             )
@@ -139,7 +140,7 @@ class ListProductReports extends ListRecords
         }
 
         $topProducts = (clone $currentQuery)
-            ->select('products.name', 'products.image_url', DB::raw('SUM(transaction_items.qty) as total_qty'), DB::raw('SUM(transaction_items.subtotal) as total_sales'))
+            ->select('products.name', 'products.image_url', DB::raw('SUM(transaction_items.base_qty) as total_qty'), DB::raw('SUM(transaction_items.subtotal) as total_sales')) // <--- UBAH INI
             ->groupBy('products.id', 'products.name', 'products.image_url')
             ->orderByDesc('total_sales')
             ->limit(10)->get()
@@ -147,7 +148,6 @@ class ListProductReports extends ListRecords
                 $item->contribution = $revenue > 0 ? round(($item->total_sales / $revenue) * 100, 1) : 0;
                 return $item;
             });
-
         $categorySales = (clone $currentQuery)
             ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
             ->select(DB::raw("COALESCE(categories.name, 'Lainnya') as category_name"), DB::raw('SUM(transaction_items.subtotal) as total_sales'))
