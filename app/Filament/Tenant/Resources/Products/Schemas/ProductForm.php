@@ -183,6 +183,31 @@ class ProductForm
                                         });
                                 }),
 
+                            // ==============================================
+                            // TAMBAHAN: PILIHAN BRAND / MEREK
+                            // ==============================================
+                            Select::make('brand_id')
+                                ->label('Merek / Brand')
+                                ->relationship('brand', 'name')
+                                ->searchable()
+                                ->preload()
+                                ->createOptionForm([
+                                    TextInput::make('name')
+                                        ->label('Nama Merek / Brand')
+                                        ->required()
+                                        ->maxLength(100)
+                                        ->unique('brands', 'name', modifyRuleUsing: fn ($rule) => $rule->where('company_id', Filament::getTenant()->id))
+                                        ->helperText('Contoh: Indofood, Unilever, dsb.')
+                                ])
+                                ->createOptionAction(function (Action $action) {
+                                    return $action
+                                        ->modalHeading('Tambah Merek Baru')
+                                        ->mutateFormDataUsing(function (array $data): array {
+                                            $data['company_id'] = Filament::getTenant()->id;
+                                            return $data;
+                                        });
+                                }),
+
                             Select::make('base_uom_id')
                                 ->label('Satuan Dasar (Terkecil)')
                                 ->relationship('baseUom', 'name')

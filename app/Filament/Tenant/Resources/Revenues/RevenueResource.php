@@ -32,6 +32,7 @@ class RevenueResource extends Resource
     protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-arrow-trending-up'; 
     protected static ?string $navigationLabel = 'Pemasukan (Revenue)';
     protected static string | \UnitEnum | null $navigationGroup = 'Transaksi';
+    protected static ?int $navigationSort = 4;
 
     public static function form(Schema $schema): Schema
     {

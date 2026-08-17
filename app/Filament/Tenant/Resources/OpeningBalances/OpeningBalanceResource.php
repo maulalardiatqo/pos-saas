@@ -39,7 +39,7 @@ class OpeningBalanceResource extends Resource
     protected static ?string $modelLabel = 'Saldo Awal';
     protected static ?string $pluralModelLabel = 'Saldo Awal';
     protected static string | \UnitEnum | null $navigationGroup = 'Transaksi';
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 2;
     protected static ?string $slug = 'opening-balance';
 
     // HANYA OWNER YANG BISA MENGAKSES

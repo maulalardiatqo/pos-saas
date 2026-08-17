@@ -27,6 +27,17 @@ class ViewSalesInvoice extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            // ==============================================
+            // TOMBOL BARU: CETAK INVOICE
+            // ==============================================
+            Action::make('print')
+                ->label('Cetak Invoice')
+                ->icon('heroicon-o-printer')
+                ->color('info')
+                // Mengarahkan ke route cetak di tab baru
+                ->url(fn () => route('sales-invoice.print', $this->record->id))
+                ->openUrlInNewTab(),
+
             Action::make('terima_pembayaran')
                 ->label('Terima Pembayaran')
                 ->icon('heroicon-o-currency-dollar')
@@ -102,9 +113,6 @@ class ViewSalesInvoice extends ViewRecord
         return $schema
             ->columns(1)
             ->components([
-                // ==============================================
-                // KOTAK ATAS: INFORMASI INVOICE (FULL WIDTH)
-                // ==============================================
                 Section::make('Informasi Invoice')
                     ->columns(['default' => 2, 'md' => 4])
                     ->schema([
@@ -123,30 +131,53 @@ class ViewSalesInvoice extends ViewRecord
                             ->money('IDR', locale: 'id')->color('danger')->weight('bold'),
                     ]),
                 
-                // ==============================================
-                // TABS SISTEM: RINCIAN BARANG & RIWAYAT PEMBAYARAN
-                // ==============================================
                 Tabs::make('InvoiceDetails')
                     ->tabs([
-                        // TAB 1: RINCIAN BARANG (DEFAULT ACTIVE)
                         Tab::make('Rincian Barang (Item)')
                             ->icon('heroicon-o-shopping-bag')
                             ->schema([
                                 RepeatableEntry::make('items')
                                     ->label('')
                                     ->schema([
-                                        TextEntry::make('item_name')->label('Nama Barang')->weight('bold')->columnSpan(4),
-                                        TextEntry::make('qty')->label('Qty')->columnSpan(2),
-                                        TextEntry::make('selling_price')->label('Harga Satuan')->money('IDR', locale: 'id')->columnSpan(3),
-                                        TextEntry::make('subtotal')->label('Total Bersih')->money('IDR', locale: 'id')->weight('bold')->columnSpan(3),
+                                        TextEntry::make('item_name')
+                                            ->label('Nama Barang')
+                                            ->weight('bold')
+                                            ->columnSpan(3),
+                                            
+                                        TextEntry::make('qty')
+                                            ->label('Qty')
+                                            ->columnSpan(1),
+                                            
+                                        TextEntry::make('uom.name')
+                                            ->label('Satuan')
+                                            ->default('-')
+                                            ->columnSpan(2),
+                                            
+                                        TextEntry::make('selling_price')
+                                            ->label('Harga Satuan')
+                                            ->money('IDR', locale: 'id')
+                                            ->columnSpan(2),
+                                            
+                                        TextEntry::make('discount')
+                                            ->label('Diskon Item')
+                                            ->getStateUsing(fn ($record) => ($record->qty * $record->selling_price) - $record->subtotal)
+                                            ->money('IDR', locale: 'id')
+                                            ->color('danger')
+                                            ->columnSpan(2),
+                                            
+                                        TextEntry::make('subtotal')
+                                            ->label('Total Bersih')
+                                            ->money('IDR', locale: 'id')
+                                            ->weight('bold')
+                                            ->color('primary')
+                                            ->columnSpan(2),
                                     ])
                                     ->columns(12)
                             ]),
 
-                        // TAB 2: RIWAYAT PEMBAYARAN
                         Tab::make('Riwayat Pembayaran (Billing)')
                             ->icon('heroicon-o-credit-card')
-                            ->badge(fn () => $this->record->payments()->count()) // Menampilkan jumlah transaksi cicilan
+                            ->badge(fn () => $this->record->payments()->count()) 
                             ->badgeColor('success')
                             ->schema([
                                 RepeatableEntry::make('payments')

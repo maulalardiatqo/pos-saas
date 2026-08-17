@@ -32,6 +32,7 @@ class ExpenseResource extends Resource
     protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-arrow-trending-down';
     protected static ?string $navigationLabel = 'Pengeluaran (Expense)';
     protected static string | \UnitEnum | null $navigationGroup = 'Transaksi';
+    protected static ?int $navigationSort = 3;
 
     public static function form(Schema $schema): Schema
     {

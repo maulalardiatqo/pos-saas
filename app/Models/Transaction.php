@@ -63,4 +63,8 @@ class Transaction extends Model
     {
         return $this->hasMany(TransactionPayment::class, 'transaction_id')->orderBy('payment_date', 'asc');
     }
+    public function referenceTransaction()
+    {
+        return $this->belongsTo(Transaction::class, 'reference_id');
+    }
 }

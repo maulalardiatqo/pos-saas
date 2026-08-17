@@ -39,6 +39,7 @@ class TransactionResource extends Resource
     
     protected static ?string $navigationLabel = 'Riwayat POS';
     protected static ?string $pluralLabel = 'Riwayat Transaksi POS';
+    protected static ?int $navigationSort = 1;
 
     public static function canCreate(): bool { return false; }
     public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool { return false; }

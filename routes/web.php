@@ -18,3 +18,9 @@ Route::get('/pos/receipt/{id}', function ($id) {
     
     return view('pos.receipt', compact('transaction', 'company'));
 })->name('pos.receipt');
+Route::get('/sales-invoice/{id}/print', function ($id) {
+        $transaction = Transaction::with(['items.uom', 'customer', 'company', 'outlet'])->findOrFail($id);
+        
+        // Memanggil file view blade
+        return view('print.sales-invoice', compact('transaction'));
+    })->name('sales-invoice.print');

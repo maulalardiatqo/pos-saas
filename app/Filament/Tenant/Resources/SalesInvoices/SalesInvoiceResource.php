@@ -18,6 +18,7 @@ class SalesInvoiceResource extends Resource
     
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-document-text';
     protected static string|\UnitEnum|null $navigationGroup = 'Transaksi';
+    protected static ?int $navigationSort = 7;
     
     protected static ?string $navigationLabel = 'Penjualan Tempo';
     protected static ?string $pluralLabel = 'Daftar Invoice (Tempo)';
