@@ -82,7 +82,7 @@ class StockAdjustmentForm
                                     ->label('Pilih Produk')
                                     ->relationship('product', 'name', function ($query) {
                                         return $query->where('company_id', Filament::getTenant()?->id)
-                                            ->where('item_type', '!=', 'service');
+                                            ->where('item_type', '=', 'goods');
                                     })
                                     ->searchable()
                                     ->preload()

@@ -10,6 +10,7 @@ return new class extends Migration
     {
         Schema::table('products', function (Blueprint $table) {
             $table->enum('item_type', ['goods', 'service'])
+                ->nullable()
                 ->default('goods')
                 ->after('name');
         });

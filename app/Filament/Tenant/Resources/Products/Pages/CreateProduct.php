@@ -15,14 +15,19 @@ class CreateProduct extends CreateRecord
     {
         $data['company_id'] = filament()->getTenant()->id;
         
-        // KUNCI PERBAIKAN: Jika form disubmit namun Fitur/Section disembunyikan,
-        // Pastikan nilai default DB tetap terisi agar tidak terjadi SQL Error
         $data['product_type'] = $data['product_type'] ?? 'standard';
         
-        // Pembersihan khusus untuk Jasa agar tidak ada data hantu (ghost data)
-        if (($data['item_type'] ?? 'goods') === 'service') {
+        if (in_array($data['product_type'], ['bundle', 'recipe'])) {
+            $data['item_type'] = 'bundle';
             $data['base_uom_id']  = null;
             $data['has_variants'] = false;
+        } elseif (($data['item_type'] ?? 'goods') === 'service') {
+            // Jika Jasa / Service
+            $data['base_uom_id']  = null;
+            $data['has_variants'] = false;
+        } else {
+            // Jika kosong (karena error UI dll), pastikan fallback ke goods
+            $data['item_type'] = $data['item_type'] ?? 'goods';
         }
         
         return $data;
@@ -32,7 +37,7 @@ class CreateProduct extends CreateRecord
     {
         $product = $this->record;
 
-        // Proses ini akan aman dan di-skip otomatis jika Jasa (karena base_uom_id = null)
+        // Blok ini sudah aman karena ada pengecekan if ($product->base_uom_id)
         if ($product->base_uom_id) {
             
             $baseUomRecord = DB::table('product_uoms')

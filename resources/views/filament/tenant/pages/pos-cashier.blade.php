@@ -451,7 +451,7 @@
                                         @focus="searchFocused = true"
                                         @blur="setTimeout(() => searchFocused = false, 200)"
                                         class="pos-customer-select"
-                                        placeholder="-- Ketik Nama / No. HP / Kode Pelanggan --"
+                                        placeholder="-- Ketikan Data Customer --"
                                         autocomplete="off"
                                         style="width: 100%; border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 600;">
 
@@ -466,7 +466,14 @@
                                                      onmouseover="this.style.background='var(--pos-bg-hover)'" 
                                                      onmouseout="this.style.background='transparent'">
                                                     <div style="font-weight: 700; color: var(--pos-text-main); font-size: 0.8rem;">{{ $cust->name }}</div>
-                                                    <div style="font-size: 0.7rem; color: var(--pos-text-muted);">{{ $cust->phone ?? 'No HP (-)' }} • {{ $cust->code }}</div>
+                                                    <div style="font-size: 0.7rem; color: var(--pos-text-muted);">
+                                                        {{ $cust->phone ?? 'No HP (-)' }} • {{ $cust->code }}
+                                                        
+                                                        <!-- MUNCULKAN PLAT NOMOR JIKA BENGKEL -->
+                                                        @if(data_get(filament()->getTenant()?->subscriptionPlan, 'code') === 'bengkel_motor' && $cust->vehicles && $cust->vehicles->count() > 0)
+                                                            <br><span style="color: #f97316; font-weight: bold;">🏍️ {{ $cust->vehicles->pluck('nomor_plat')->join(', ') }}</span>
+                                                        @endif
+                                                    </div>
                                                 </div>
                                             @endforeach
                                         </div>
@@ -479,8 +486,15 @@
                                     <!-- Mode Pelanggan Terpilih -->
                                     <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; border-radius: 8px; padding: 0.5rem 0.75rem; width: 100%;">
                                         <div>
-                                            <div style="font-size: 0.75rem; font-weight: 800; color: #3b82f6;">👤 {{ $customerInfo->name ?? 'Pelanggan' }}</div>
-                                            <div style="font-size: 0.65rem; color: var(--pos-text-muted);">{{ $customerInfo->phone ?? 'No HP (-)' }}</div>
+                                            <div style="font-size: 0.75rem; font-weight: 800; color: #3b82f6;">👤 {{ $customerInfo['name'] ?? 'Pelanggan' }}</div>
+                                            <div style="font-size: 0.65rem; color: var(--pos-text-muted);">
+                                                {{ $customerInfo['phone'] ?? 'No HP (-)' }}
+                                                
+                                                <!-- MUNCULKAN PLAT NOMOR SAAT DIPILIH (JIKA BENGKEL) -->
+                                                @if(data_get(filament()->getTenant()?->subscriptionPlan, 'code') === 'bengkel_motor' && !empty($customerInfo['vehicles']))
+                                                    • <span style="color: #f97316; font-weight: bold;">🏍️ {{ collect($customerInfo['vehicles'])->pluck('nomor_plat')->join(', ') }}</span>
+                                                @endif
+                                            </div>
                                         </div>
                                         <button wire:click="clearCustomer" style="background: transparent; border: none; color: #ef4444; font-weight: bold; cursor: pointer; padding: 0.2rem 0.5rem; font-size: 0.8rem;">✕ Batal</button>
                                     </div>
@@ -492,49 +506,6 @@
                                 {{ $this->createCustomerAction }}
                             </div>
                         </div>
-                        
-                        <!-- INFORMASI MEMBERSHIP & POIN (Tampil hanya jika ada pelanggan dipilih) -->
-                        @if($customerInfo)
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; padding: 0.5rem; background: var(--pos-bg-hover); border-radius: 8px; border: 1px solid var(--pos-border-strong);">
-                                <div>
-                                    <span style="font-size: 0.65rem; color: var(--pos-text-muted); display: block; font-weight: 700; text-transform: uppercase;">Status Member</span>
-                                    <span style="font-size: 0.8rem; font-weight: 800; color: #eab308;">{{ $customerInfo['membership']['name'] ?? 'Reguler' }}</span>
-                                </div>
-                                <div style="text-align: right;">
-                                    <span style="font-size: 0.65rem; color: var(--pos-text-muted); display: block; font-weight: 700; text-transform: uppercase;">Poin Aktif</span>
-                                    <span style="font-size: 0.8rem; font-weight: 800; color: #3b82f6;">{{ number_format($customerInfo['points_balance'], 0, ',', '.') }} Poin</span>
-                                </div>
-                            </div>
-                            
-                            <!-- TOMBOL KATALOG HADIAH -->
-                            @if(count($this->availableRewards) > 0)
-                                <div style="margin-top: 0.5rem; text-align: center; width: 100%;">
-                                    <button @click="showRewardModal = true" style="width: 100%; background: linear-gradient(135deg, #8b5cf6, #3b82f6); color: white; border: none; padding: 0.5rem; border-radius: 8px; font-weight: 800; font-size: 0.75rem; cursor: pointer; text-transform: uppercase;">
-                                        🎁 Buka Katalog Hadiah
-                                    </button>
-                                </div>
-                            @endif
-
-                            <!-- FORM TUKAR POIN (REDEEM) -->
-                            @if(filament()->getTenant()->is_loyalty_enabled && $customerInfo['points_balance'] > 0)
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; padding: 0.5rem 0; border-top: 1px dashed var(--pos-border);">
-                                <span style="font-size: 0.75rem; font-weight: 700; color: var(--pos-text-main);">Tukar Poin:</span>
-                                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <input type="number" 
-                                        wire:model.live.debounce.500ms="pointsToRedeem" 
-                                        max="{{ $customerInfo['points_balance'] }}" 
-                                        min="0" 
-                                        class="pos-discount-field" 
-                                        style="width: 70px; padding: 0.25rem 0.5rem;" 
-                                        placeholder="0"
-                                        x-on:focus="$el.value == '0' ? $el.value = '' : $el.select()"
-                                        x-on:blur="$el.value == '' ? $el.value = '0' : null">
-                                    <span style="font-size: 0.7rem; font-weight: 700; color: var(--pos-text-muted);">Pts</span>
-                                </div>
-                            </div>
-                            @endif
-                        @endif
-                    </div>
                     
                     <!-- List Item Nota -->
                     <div class="pos-cart-items-list">

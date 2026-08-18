@@ -28,6 +28,40 @@ class StockMovementsTable
                     ->searchable()
                     ->visible(fn () => auth()->user()->isOwner() || auth()->user()->isPlatform()),
 
+                // =========================================================================
+                // KOLOM BARU: NOMOR TRANSAKSI (KLIKABEL)
+                // =========================================================================
+                TextColumn::make('reference_id')
+                    ->label('No. Transaksi / Referensi')
+                    ->formatStateUsing(function (string $state) {
+                        // Ambil nomor transaksi dari database
+                        $transaction = \App\Models\Transaction::find($state);
+                        return $transaction ? $transaction->transaction_number : '-';
+                    })
+                    ->url(function (string $state) {
+                        $transaction = \App\Models\Transaction::find($state);
+                        if (!$transaction) return null;
+
+                        // Arahkan URL ke halaman View yang tepat berdasarkan tipe transaksi
+                        return match ($transaction->type) {
+                            'purchaseorder' => \App\Filament\Tenant\Resources\PurchaseOrders\PurchaseOrderResource::getUrl('view', ['record' => $state]),
+                            'refund'        => \App\Filament\Tenant\Resources\PurchaseReturns\PurchaseReturnResource::getUrl('view', ['record' => $state]),
+                            'invoice'       => \App\Filament\Tenant\Resources\SalesInvoices\SalesInvoiceResource::getUrl('view', ['record' => $state]),
+                            // Jika ada resource lain (misal: penjualan tunai/POS), Anda bisa menambahkannya di sini
+                            default => null,
+                        };
+                    })
+                    ->openUrlInNewTab()
+                    ->color('info')
+                    ->weight('bold')
+                    ->searchable(query: function (Builder $query, string $search) {
+                        $query->whereIn('reference_id', function ($q) use ($search) {
+                            $q->select('id')
+                              ->from('transactions')
+                              ->where('transaction_number', 'like', "%{$search}%");
+                        });
+                    }),
+
                 TextColumn::make('type')
                     ->label('Jenis Transaksi')
                     ->badge()

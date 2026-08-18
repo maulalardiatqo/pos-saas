@@ -116,18 +116,36 @@ class ProductForm
                             ->maxLength(200)
                             ->columnSpanFull(),
 
-                        Select::make('item_type')
-                            ->label('Jenis Product')
-                            ->options([
-                                'goods' => 'Barang Fisik',
-                                'service' => 'Jasa / Layanan',
-                            ])
-                            ->default('goods')
-                            ->required()
-                            ->live() 
-                            ->helperText('Pilih "Jasa" jika item ini tidak memerlukan pelacakan stok gudang.')
-                            ->columnSpanFull(),
+                        Grid::make(2)->schema([
+                            
+                            Select::make('product_type')
+                                ->label('Pilih Tipe Produk')
+                                ->options([
+                                    'standard' => 'Produk Standar (Biasa)',
+                                    'bundle'   => 'Paket Gabungan (Bundle)',
+                                    'recipe'   => 'Menu dengan Resep (BOM)',
+                                ])
+                                ->default('standard')
+                                ->live()
+                                ->required()
+                                ->afterStateUpdated(function (Get $get, Set $set, $state) {
+                                    self::updateRootCostPrice($get, $set);
+                                }),
 
+                            Select::make('item_type')
+                                ->label('Jenis Product')
+                                ->options([
+                                    'goods'   => 'Barang Fisik',
+                                    'service' => 'Jasa / Layanan',
+                                    // Opsi 'bundle' tidak perlu ada di UI
+                                ])
+                                ->default('goods')
+                                ->live() 
+                                ->required(fn (Get $get) => $get('product_type') !== 'bundle')
+                                ->hidden(fn (Get $get) => $get('product_type') === 'bundle')
+                                ->helperText('Pilih "Jasa" jika item ini tidak memerlukan pelacakan stok gudang.'),
+                                
+                        ]),
                         Grid::make(2)->schema([
                             TextInput::make('sku')
                                 ->label('SKU (Stock Keeping Unit)')
@@ -211,7 +229,10 @@ class ProductForm
                             Select::make('base_uom_id')
                                 ->label('Satuan Dasar (Terkecil)')
                                 ->relationship('baseUom', 'name')
-                                ->required(fn (Get $get) => $get('item_type') === 'goods') 
+                                // ========================================================
+                                // PERBAIKAN 2: TIDAK WAJIB DIISI JIKA TIPE PRODUK BUNDLE
+                                // ========================================================
+                                ->required(fn (Get $get) => $get('item_type') === 'goods' && $get('product_type') !== 'bundle') 
                                 ->visible(fn (Get $get) => $get('item_type') === 'goods')
                                 ->searchable()
                                 ->preload()
@@ -289,7 +310,7 @@ class ProductForm
                 // ==========================================
                 Tabs::make('TabsDetail')
                     ->columnSpanFull() 
-                    ->visible(fn (Get $get) => $get('item_type') === 'goods') 
+                    ->visible(fn (Get $get) => $get('item_type') !== 'service')
                     ->tabs([
                         
                         // TAB 1: KONVERSI SATUAN
@@ -304,6 +325,7 @@ class ProductForm
                                     ->hiddenLabel()
                                     ->addActionLabel('Tambah Satuan Khusus')
                                     ->columnSpanFull()
+                                    ->defaultItems(0)
                                     ->schema([
                                         Grid::make(2)->schema([
                                             Select::make('uom_id')
@@ -397,25 +419,13 @@ class ProductForm
                             ]),
 
                         // TAB 2: TIPE PRODUK / PAKET BOM
-                        Tab::make('Tipe Produk & Paket (BOM)')
+                        Tab::make('Paket Gabungan & Resep (BOM)')
                             ->icon('heroicon-o-rectangle-group')
                             ->visible(function () {
                                 $features = Filament::getTenant()?->subscriptionPlan?->features;
                                 return data_get($features, 'products.bundle') === true || data_get($features, 'products.recipe') === true;
                             })
                             ->schema([
-                                Select::make('product_type')
-                                    ->label('Pilih Tipe Produk')
-                                    ->options([
-                                        'standard' => 'Produk Standar (Biasa)',
-                                        'bundle'   => 'Paket Gabungan (Bundle)',
-                                        'recipe'   => 'Menu dengan Resep (BOM)',
-                                    ])
-                                    ->default('standard')
-                                    ->live()
-                                    ->required()
-                                    ->afterStateUpdated(fn (Get $get, Set $set) => self::updateRootCostPrice($get, $set)),
-
                                 Repeater::make('components')
                                     ->relationship()
                                     ->label('Daftar Produk / Bahan Baku')
@@ -441,17 +451,17 @@ class ProductForm
                                                 })
                                                 ->disableOptionsWhenSelectedInSiblingRepeaterItems(),
 
-                                            Select::make('child_variant_id')
-                                                ->label('Varian (Opsional)')
-                                                ->relationship('childVariant', 'name')
-                                                ->searchable()
-                                                ->preload()
-                                                ->hidden(function (Get $get) {
-                                                    $productId = $get('child_product_id');
-                                                    if (!$productId) return false;
-                                                    return \Illuminate\Support\Facades\DB::table('products')
-                                                        ->where('id', $productId)->value('item_type') === 'service';
-                                                }),
+                                            // Select::make('child_variant_id')
+                                            //     ->label('Varian (Opsional)')
+                                            //     ->relationship('childVariant', 'name')
+                                            //     ->searchable()
+                                            //     ->preload()
+                                            //     ->hidden(function (Get $get) {
+                                            //         $productId = $get('child_product_id');
+                                            //         if (!$productId) return false;
+                                            //         return \Illuminate\Support\Facades\DB::table('products')
+                                            //             ->where('id', $productId)->value('item_type') === 'service';
+                                            //     }),
 
                                             Select::make('uom_id')
                                                 ->label('Satuan')
@@ -521,70 +531,70 @@ class ProductForm
                             ]),
 
                         // TAB 3: VARIAN PRODUK
-                        Tab::make('Varian Produk')
-                            ->icon('heroicon-o-swatch')
-                            ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.variant') === true)
-                            ->schema([
-                                Toggle::make('has_variants')
-                                    ->label('Produk ini memiliki varian')
-                                    ->live()
-                                    ->default(false),
+                        // Tab::make('Varian Produk')
+                        //     ->icon('heroicon-o-swatch')
+                        //     ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.variant') === true)
+                        //     ->schema([
+                        //         Toggle::make('has_variants')
+                        //             ->label('Produk ini memiliki varian')
+                        //             ->live()
+                        //             ->default(false),
 
-                                Repeater::make('variants')
-                                    ->relationship()
-                                    ->hiddenLabel()
-                                    ->addActionLabel('Tambah Varian')
-                                    ->columnSpanFull()
-                                    ->visible(fn ($get) => $get('has_variants'))
-                                    ->schema([
-                                        Grid::make(3)->schema([
-                                            TextInput::make('name')
-                                                ->label('Nama Varian')
-                                                ->placeholder('Cth: Hitam - L')
-                                                ->required()
-                                                ->maxLength(150),
+                        //         Repeater::make('variants')
+                        //             ->relationship()
+                        //             ->hiddenLabel()
+                        //             ->addActionLabel('Tambah Varian')
+                        //             ->columnSpanFull()
+                        //             ->visible(fn ($get) => $get('has_variants'))
+                        //             ->schema([
+                        //                 Grid::make(3)->schema([
+                        //                     TextInput::make('name')
+                        //                         ->label('Nama Varian')
+                        //                         ->placeholder('Cth: Hitam - L')
+                        //                         ->required()
+                        //                         ->maxLength(150),
                                             
-                                            TextInput::make('sku')
-                                                ->label('SKU Varian')
-                                                ->maxLength(100),
+                        //                     TextInput::make('sku')
+                        //                         ->label('SKU Varian')
+                        //                         ->maxLength(100),
 
-                                            TextInput::make('barcode')
-                                                ->label('Barcode Varian')
-                                                ->maxLength(100)
-                                                ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.barcode') === true),
-                                        ]),
+                        //                     TextInput::make('barcode')
+                        //                         ->label('Barcode Varian')
+                        //                         ->maxLength(100)
+                        //                         ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan?->features, 'products.barcode') === true),
+                        //                 ]),
 
-                                        Grid::make(2)->schema([
-                                            TextInput::make('cost_price')
-                                                ->label('Harga Modal (Varian)')
-                                                ->prefix('Rp')
-                                                ->mask(RawJs::make('$money($input, \',\', \'.\', 0)'))
-                                                ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
-                                                ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
-                                                ->required()
-                                                ->default(0)
-                                                ->live(onBlur: true),
+                        //                 Grid::make(2)->schema([
+                        //                     TextInput::make('cost_price')
+                        //                         ->label('Harga Modal (Varian)')
+                        //                         ->prefix('Rp')
+                        //                         ->mask(RawJs::make('$money($input, \',\', \'.\', 0)'))
+                        //                         ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
+                        //                         ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
+                        //                         ->required()
+                        //                         ->default(0)
+                        //                         ->live(onBlur: true),
 
-                                            TextInput::make('price')
-                                                ->label('Harga Jual (Varian)')
-                                                ->prefix('Rp')
-                                                ->mask(RawJs::make('$money($input, \',\', \'.\', 0)'))
-                                                ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
-                                                ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
-                                                ->required()
-                                                ->default(0)
-                                                ->live(onBlur: true)
-                                                ->afterStateUpdated(function ($state, $get, \Livewire\Component $livewire) {
-                                                    $cost = (float) str_replace('.', '', (string) $get('cost_price'));
-                                                    $price = (float) str_replace('.', '', (string) $state);
+                        //                     TextInput::make('price')
+                        //                         ->label('Harga Jual (Varian)')
+                        //                         ->prefix('Rp')
+                        //                         ->mask(RawJs::make('$money($input, \',\', \'.\', 0)'))
+                        //                         ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 0, ',', '.') : '0')
+                        //                         ->dehydrateStateUsing(fn ($state) => (float) str_replace('.', '', (string) $state))
+                        //                         ->required()
+                        //                         ->default(0)
+                        //                         ->live(onBlur: true)
+                        //                         ->afterStateUpdated(function ($state, $get, \Livewire\Component $livewire) {
+                        //                             $cost = (float) str_replace('.', '', (string) $get('cost_price'));
+                        //                             $price = (float) str_replace('.', '', (string) $state);
                                                     
-                                                    if ($price > 0 && $price < $cost) {
-                                                        $livewire->js("alert(`🛑 PERINGATAN HARGA VARIAN!\n\nHarga Jual Varian (Rp " . number_format($price, 0, ',', '.') . ") Lebih Kecil dari Harga Modal Varian (Rp " . number_format($cost, 0, ',', '.') . ").`);");
-                                                    }
-                                                }),
-                                        ]),
-                                    ])
-                            ]),
+                        //                             if ($price > 0 && $price < $cost) {
+                        //                                 $livewire->js("alert(`🛑 PERINGATAN HARGA VARIAN!\n\nHarga Jual Varian (Rp " . number_format($price, 0, ',', '.') . ") Lebih Kecil dari Harga Modal Varian (Rp " . number_format($cost, 0, ',', '.') . ").`);");
+                        //                             }
+                        //                         }),
+                        //                 ]),
+                        //             ])
+                        //     ]),
                     ]),
 
             ]);

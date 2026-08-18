@@ -57,4 +57,8 @@ class Customer extends Model
     {
         return $this->hasMany(PointHistory::class);
     }
+    public function vehicles()
+    {
+        return $this->hasMany(CustomerVehicle::class);
+    }
 }

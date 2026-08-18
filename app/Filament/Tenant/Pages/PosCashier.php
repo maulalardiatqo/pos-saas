@@ -86,21 +86,23 @@ class PosCashier extends Page
             ->extraAttributes(['style' => 'height: 38px; width: 38px; display: flex; align-items: center; justify-content: center; border-radius: 8px; margin-left: 0.5rem;'])
             ->form([
                 TextInput::make('code')
-                            ->label('Kode Pelanggan')
-                            ->required()
-                            ->maxLength(50)
-                            ->unique(
-                                ignoreRecord: true,
-                                modifyRuleUsing: fn ($rule) => $rule->where(
-                                    'company_id',
-                                    Filament::getTenant()->id
-                                )
-                            )
-                            ->default(fn () => 'CUST-' . strtoupper(str()->random(5))),
+                    ->label('Kode Pelanggan')
+                    ->required()
+                    ->maxLength(50)
+                    ->unique(
+                        ignoreRecord: true,
+                        modifyRuleUsing: fn ($rule) => $rule->where(
+                            'company_id',
+                            Filament::getTenant()->id
+                        )
+                    )
+                    ->default(fn () => 'CUST-' . strtoupper(str()->random(5))),
+                    
                 TextInput::make('name')
                     ->label('Nama Lengkap')
                     ->required()
                     ->maxLength(150),
+                    
                 Select::make('outlet_id')
                     ->label('Pilih Outlet / Cabang')
                     ->options(function () {
@@ -116,20 +118,63 @@ class PosCashier extends Page
                     ->helperText('Kosongkan jika pelanggan ini bisa berbelanja di semua cabang (Global).')
                     ->searchable()
                     ->preload(),
+                    
                 TextInput::make('phone')
                     ->label('Nomor Telepon')
                     ->tel()
                     ->maxLength(20),
+                    
                 TextInput::make('email')
                     ->label('Email')
                     ->email()
                     ->maxLength(100),
+                    
                 Textarea::make('address')
                     ->label('Alamat Lengkap')
                     ->rows(3),
+
+                // =================================================================
+                // TAMBAHAN: DAFTAR KENDARAAN (Hanya muncul jika bengkel_motor)
+                // =================================================================
+                \Filament\Forms\Components\Repeater::make('vehicles')
+                    ->label('Daftar Kendaraan (Motor)')
+                    ->addActionLabel('Tambah Kendaraan')
+                    ->columnSpanFull()
+                    ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan, 'code') === 'bengkel_motor')
+                    ->schema([
+                        \Filament\Schemas\Components\Grid::make(['default' => 1, 'md' => 3])->schema([
+                            Select::make('jenis')
+                                ->label('Jenis Motor')
+                                ->options([
+                                    'matic'            => 'Matic',
+                                    'bebek'            => 'Bebek',
+                                    'sport'            => 'Sport',
+                                    'adventure'        => 'Adventure',
+                                    'motor elektronik' => 'Motor Elektronik',
+                                ])
+                                ->required(),
+
+                            TextInput::make('type')
+                                ->label('Tipe / Model')
+                                ->placeholder('Contoh: Honda Beat FI')
+                                ->required()
+                                ->maxLength(255),
+
+                            TextInput::make('nomor_plat')
+                                ->label('Nomor Plat')
+                                ->placeholder('Contoh: D 1234 ABC')
+                                ->required()
+                                ->maxLength(50)
+                                ->extraAttributes(['style' => 'text-transform: uppercase;'])
+                                ->dehydrateStateUsing(fn ($state) => strtoupper(str_replace(' ', '', (string) $state))),
+                        ])
+                    ])
+                    ->defaultItems(0) 
             ])
             ->action(function (array $data) {
                 $tenant = filament()->getTenant();
+                
+                // 1. Simpan Data Customer Utama
                 $customer = Customer::create([
                     'company_id' => $tenant->id,
                     'outlet_id'  => $data['outlet_id'] ?? null,
@@ -141,9 +186,23 @@ class PosCashier extends Page
                     'is_active'  => true,
                 ]);
 
-                // Auto select pelanggan yang baru dibuat
+                // 2. Simpan Data Kendaraan (Jika Ada)
+                if (!empty($data['vehicles'])) {
+                    foreach ($data['vehicles'] as $vehicle) {
+                        \App\Models\CustomerVehicle::create([
+                            'customer_id' => $customer->id,
+                            'company_id'  => $tenant->id,
+                            'jenis'       => $vehicle['jenis'],
+                            'type'        => $vehicle['type'],
+                            // Paksa nomor plat menjadi huruf kapital saat masuk ke database
+                            'nomor_plat'  => strtoupper($vehicle['nomor_plat']),
+                        ]);
+                    }
+                }
+
+                // 3. Auto select pelanggan yang baru dibuat di Kasir
                 $this->selectCustomer($customer->id);
-                Notification::make()->title('Pelanggan berhasil ditambahkan!')->success()->send();
+                Notification::make()->title('Pelanggan & Kendaraan berhasil ditambahkan!')->success()->send();
             });
     }
 
@@ -205,7 +264,10 @@ class PosCashier extends Page
                          ->where('product_outlets.outlet_id', '=', $outletId);
                 });
             })
-            ->join('uoms as base_uoms', 'products.base_uom_id', '=', 'base_uoms.id')
+            // ========================================================
+            // PERBAIKAN 1: Gunakan leftJoin agar produk tanpa satuan tetap muncul
+            // ========================================================
+            ->leftJoin('uoms as base_uoms', 'products.base_uom_id', '=', 'base_uoms.id')
             ->leftJoin('product_uoms', function ($join) {
                 $join->on('products.id', '=', 'product_uoms.product_id')
                      ->where('product_uoms.is_default', true)
@@ -218,7 +280,10 @@ class PosCashier extends Page
                 DB::raw('COALESCE(product_uoms.barcode, products.barcode) as barcode'),
                 'products.sku', 
                 DB::raw('COALESCE(product_uoms.uom_id, products.base_uom_id) as uom_id'),
-                DB::raw('COALESCE(variant_uoms.name, base_uoms.name) as uom_name'),
+                // ========================================================
+                // PERBAIKAN 2: Tambahkan fallback '-' jika tidak punya satuan
+                // ========================================================
+                DB::raw("COALESCE(variant_uoms.name, base_uoms.name, '-') as uom_name"),
                 DB::raw('COALESCE(product_uoms.conversion_factor, 1) as conversion_factor')
             ])
             ->selectSub($latestStockSubquery, 'current_stock')
@@ -248,21 +313,40 @@ class PosCashier extends Page
         }
 
         $keyword = trim(strtolower($this->customerSearch));
+        // Hilangkan spasi pada inputan pencarian agar lebih toleran (Cth: cari "D1234" ketemu "D 1234 ABC")
+        $keywordNoSpace = str_replace(' ', '', $keyword);
+        
+        $tenant = filament()->getTenant();
         $outletId = auth()->user()->outlet_id;
+        $isBengkel = data_get($tenant?->subscriptionPlan, 'code') === 'bengkel_motor';
 
-        return Customer::where('company_id', filament()->getTenant()->id)
+        $query = Customer::where('company_id', $tenant->id)
             ->where('is_active', true)
             ->where(function ($query) use ($outletId) {
                 $query->whereNull('outlet_id')
                       ->orWhere('outlet_id', $outletId);
-            })
-            ->where(function($q) use ($keyword) {
-                $q->whereRaw('LOWER(name) LIKE ?', ["%{$keyword}%"])
-                  ->orWhereRaw('LOWER(code) LIKE ?', ["%{$keyword}%"])
-                  ->orWhereRaw('LOWER(phone) LIKE ?', ["%{$keyword}%"]);
-            })
-            ->take(5) // Batasi 5 hasil agar ringan
-            ->get();
+            });
+
+        // Jika bengkel, muat juga relasi vehicles agar bisa ditampilkan di UI
+        if ($isBengkel) {
+            $query->with('vehicles');
+        }
+
+        $query->where(function($q) use ($keyword, $keywordNoSpace, $isBengkel) {
+            $q->whereRaw('LOWER(name) LIKE ?', ["%{$keyword}%"])
+              ->orWhereRaw('LOWER(code) LIKE ?', ["%{$keyword}%"])
+              ->orWhereRaw('LOWER(phone) LIKE ?', ["%{$keyword}%"]);
+              
+            // Logika pencarian ekstra ke tabel kendaraan (Nomor Plat)
+            if ($isBengkel) {
+                $q->orWhereHas('vehicles', function ($vQ) use ($keyword, $keywordNoSpace) {
+                    $vQ->whereRaw('LOWER(nomor_plat) LIKE ?', ["%{$keyword}%"])
+                       ->orWhereRaw("REPLACE(LOWER(nomor_plat), ' ', '') LIKE ?", ["%{$keywordNoSpace}%"]);
+                });
+            }
+        });
+
+        return $query->take(5)->get();
     }
 
     public function selectCustomer($id)
@@ -282,7 +366,13 @@ class PosCashier extends Page
     public function updatedCustomerId($value)
     {
         if ($value) {
-            $this->customerInfo = Customer::with('membership')->find($value);
+            $isBengkel = data_get(filament()->getTenant()?->subscriptionPlan, 'code') === 'bengkel_motor';
+            $with = ['membership'];
+            if ($isBengkel) {
+                $with[] = 'vehicles';
+            }
+            
+            $this->customerInfo = Customer::with($with)->find($value);
         } else {
             $this->customerInfo = null;
         }

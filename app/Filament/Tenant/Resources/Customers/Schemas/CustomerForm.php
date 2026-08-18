@@ -7,10 +7,11 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Repeater;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
-use Illuminate\Database\Eloquent\Builder; // <-- Tambahan untuk query builder
+use Illuminate\Database\Eloquent\Builder;
 
 class CustomerForm
 {
@@ -34,7 +35,6 @@ class CustomerForm
                         'md' => 2,
                     ])
                     ->schema([
-
                         TextInput::make('code')
                             ->label('Kode Pelanggan')
                             ->required()
@@ -53,19 +53,16 @@ class CustomerForm
                             ->required()
                             ->maxLength(150),
 
-                        // INPUT OUTLET UNTUK SEMUA USER (Owner & Staf)
                         Select::make('outlet_id')
                             ->label('Pilih Outlet / Cabang')
                             ->relationship('outlet', 'name', function (Builder $query) use ($isOwnerOrPlatform, $user) {
-                                // Jika BUKAN owner/platform, filter agar hanya muncul outlet user tersebut
                                 if (!$isOwnerOrPlatform) {
                                     $query->where('id', $user->outlet_id);
                                 }
                                 return $query;
                             })
-                            // Placeholder ini otomatis bernilai `null` jika dipilih dan dikirim ke database
                             ->placeholder('Pelanggan Umum (Semua Outlet)')
-                            ->helperText('kosongkan jika pelanggan ini bisa berbelanja di semua cabang (Global).')
+                            ->helperText('Kosongkan jika pelanggan ini bisa berbelanja di semua cabang (Global).')
                             ->searchable()
                             ->preload(),
 
@@ -81,9 +78,60 @@ class CustomerForm
 
                         Textarea::make('address')
                             ->label('Alamat Lengkap')
-                            ->rows(5)
+                            ->rows(2)
                             ->columnSpanFull(),
+                    ]),
 
+                /*
+                |--------------------------------------------------------------------------
+                | FITUR KHUSUS BENGKEL: Daftar Kendaraan
+                |--------------------------------------------------------------------------
+                */
+                Section::make('Daftar Kendaraan (Motor)')
+                    ->description('Masukkan data kendaraan milik pelanggan ini (bisa lebih dari satu).')
+                    // =================================================================
+                    // LOGIKA PENYEMBUNYIAN (Hanya tampil jika kode plan bengkel_motor)
+                    // =================================================================
+                    ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan, 'code') === 'bengkel_motor')
+                    ->schema([
+                        Repeater::make('vehicles')
+                            ->relationship('vehicles')
+                            ->label('')
+                            ->addActionLabel('Tambah Kendaraan')
+                            // Menyuntikkan company_id otomatis ke tabel vehicles saat disimpan
+                            ->mutateRelationshipDataBeforeCreateUsing(function (array $data): array {
+                                $data['company_id'] = Filament::getTenant()->id;
+                                return $data;
+                            })
+                            ->schema([
+                                Grid::make(['default' => 1, 'md' => 3])->schema([
+                                    Select::make('jenis')
+                                        ->label('Jenis Motor')
+                                        ->options([
+                                            'matic'            => 'Matic',
+                                            'bebek'            => 'Bebek',
+                                            'sport'            => 'Sport',
+                                            'adventure'        => 'Adventure',
+                                            'motor elektronik' => 'Motor Elektronik',
+                                        ])
+                                        ->required(),
+
+                                    TextInput::make('type')
+                                        ->label('Tipe / Model')
+                                        ->placeholder('Contoh: Honda Beat FI')
+                                        ->required()
+                                        ->maxLength(255),
+
+                                    TextInput::make('nomor_plat')
+                                        ->label('Nomor Plat')
+                                        ->placeholder('Contoh: D 1234 ABC')
+                                        ->required()
+                                        ->maxLength(50)
+                                        ->extraAttributes(['style' => 'text-transform: uppercase;'])
+                                        ->dehydrateStateUsing(fn ($state) => strtoupper(str_replace(' ', '', (string) $state))),
+                                ])
+                            ])
+                            ->defaultItems(0) // Default kosong agar tidak mengganggu jika belum ada motor
                     ]),
 
                 /*
@@ -91,20 +139,17 @@ class CustomerForm
                 | CRM + Status
                 |--------------------------------------------------------------------------
                 */
-
                 Grid::make([
                     'default' => 1,
                     'lg' => 2,
                 ])
                     ->schema([
-
                         Section::make('CRM & Loyalty')
                             ->visible(fn () => data_get(
                                 Filament::getTenant()?->subscriptionPlan?->features,
                                 'crm.membership'
                             ) === true)
                             ->schema([
-
                                 Select::make('membership_id')
                                     ->label('Membership')
                                     ->relationship('membership', 'name')
@@ -118,18 +163,14 @@ class CustomerForm
                                     ->disabled()
                                     ->dehydrated(false)
                                     ->helperText('Poin bertambah otomatis dari transaksi.'),
-
                             ]),
 
                         Section::make('Status')
                             ->schema([
-
                                 Toggle::make('is_active')
                                     ->label('Pelanggan Aktif')
                                     ->default(true),
-
                             ]),
-
                     ]),
 
             ]);
