@@ -165,8 +165,30 @@ class PosCashier extends Page
                                 ->placeholder('Contoh: D 1234 ABC')
                                 ->required()
                                 ->maxLength(50)
+                                // ==========================================================
+                                // PERBAIKAN: Validasi unik dan terdaftar (Sama dengan CustomerForm)
+                                // ==========================================================
+                                ->distinct()
+                                ->validationMessages([
+                                    'distinct' => 'Plat nomor ini tidak boleh sama dengan baris lain.',
+                                ])
                                 ->extraAttributes(['style' => 'text-transform: uppercase;'])
-                                ->dehydrateStateUsing(fn ($state) => strtoupper(str_replace(' ', '', (string) $state))),
+                                ->dehydrateStateUsing(fn ($state) => strtoupper(str_replace(' ', '', (string) $state)))
+                                ->rule(function () {
+                                    return function (string $attribute, $value, \Closure $fail) {
+                                        $cleanedValue = strtoupper(str_replace(' ', '', (string) $value));
+                                        $companyId = Filament::getTenant()->id;
+                                        
+                                        $existingVehicle = \App\Models\CustomerVehicle::with('customer')
+                                            ->where('company_id', $companyId)
+                                            ->where('nomor_plat', $cleanedValue)
+                                            ->first();
+
+                                        if ($existingVehicle && $existingVehicle->customer) {
+                                            $fail("Nomor Plat Sudah Terdaftar Atas Nama " . $existingVehicle->customer->name);
+                                        }
+                                    };
+                                }),
                         ])
                     ])
                     ->defaultItems(0) 
@@ -195,7 +217,7 @@ class PosCashier extends Page
                             'jenis'       => $vehicle['jenis'],
                             'type'        => $vehicle['type'],
                             // Paksa nomor plat menjadi huruf kapital saat masuk ke database
-                            'nomor_plat'  => strtoupper($vehicle['nomor_plat']),
+                            'nomor_plat'  => strtoupper(str_replace(' ', '', $vehicle['nomor_plat'])),
                         ]);
                     }
                 }
@@ -264,9 +286,6 @@ class PosCashier extends Page
                          ->where('product_outlets.outlet_id', '=', $outletId);
                 });
             })
-            // ========================================================
-            // PERBAIKAN 1: Gunakan leftJoin agar produk tanpa satuan tetap muncul
-            // ========================================================
             ->leftJoin('uoms as base_uoms', 'products.base_uom_id', '=', 'base_uoms.id')
             ->leftJoin('product_uoms', function ($join) {
                 $join->on('products.id', '=', 'product_uoms.product_id')
@@ -280,9 +299,6 @@ class PosCashier extends Page
                 DB::raw('COALESCE(product_uoms.barcode, products.barcode) as barcode'),
                 'products.sku', 
                 DB::raw('COALESCE(product_uoms.uom_id, products.base_uom_id) as uom_id'),
-                // ========================================================
-                // PERBAIKAN 2: Tambahkan fallback '-' jika tidak punya satuan
-                // ========================================================
                 DB::raw("COALESCE(variant_uoms.name, base_uoms.name, '-') as uom_name"),
                 DB::raw('COALESCE(product_uoms.conversion_factor, 1) as conversion_factor')
             ])
@@ -460,7 +476,7 @@ class PosCashier extends Page
 
             $product = Product::query()
                 ->where('products.id', $productId)
-                ->join('uoms as base_uoms', 'products.base_uom_id', '=', 'base_uoms.id')
+                ->leftJoin('uoms as base_uoms', 'products.base_uom_id', '=', 'base_uoms.id')
                 ->leftJoin('product_uoms', function ($join) {
                     $join->on('products.id', '=', 'product_uoms.product_id')
                          ->where('product_uoms.is_default', true)
@@ -471,7 +487,7 @@ class PosCashier extends Page
                     'products.id', 'products.name', 'products.image_url', 'products.item_type',
                     'products.product_type', 'products.base_price as price', 'products.cost_price as cost', 
                     DB::raw('COALESCE(product_uoms.uom_id, products.base_uom_id) as uom_id'),
-                    DB::raw('COALESCE(variant_uoms.name, base_uoms.name) as uom_name'),
+                    DB::raw("COALESCE(variant_uoms.name, base_uoms.name, '-') as uom_name"),
                     DB::raw('COALESCE(product_uoms.conversion_factor, 1) as conversion_factor')
                 ])
                 ->selectSub($latestStockSubquery, 'current_stock')
@@ -480,7 +496,7 @@ class PosCashier extends Page
 
         if (!$product) return; 
 
-        $isService = ($product->item_type === 'service');
+        $isService = ($product->item_type === 'service' || $product->item_type === 'bundle'); // Tambahkan Bundle sbg bypass stok
         $isBundle = in_array($product->product_type, ['bundle', 'recipe']);
         $currentStock = (float) ($product->current_stock ?? 0);
 
@@ -501,12 +517,12 @@ class PosCashier extends Page
         } else {
             $availableUoms = [];
             $baseUomData = DB::table('products')
-                ->join('uoms', 'products.base_uom_id', '=', 'uoms.id')
+                ->leftJoin('uoms', 'products.base_uom_id', '=', 'uoms.id')
                 ->where('products.id', $productId)
                 ->select('uoms.id', 'uoms.name', 'products.base_price as price', DB::raw('1 as conversion_factor'))
                 ->first();
 
-            if ($baseUomData) {
+            if ($baseUomData && $baseUomData->id) {
                 $availableUoms[$baseUomData->id] = [
                     'id' => $baseUomData->id, 'name' => $baseUomData->name,
                     'price' => (float) $baseUomData->price, 'conversion_factor' => 1.00,
@@ -816,9 +832,12 @@ class PosCashier extends Page
     public function getPointDiscountAmount()
     {
         if (!$this->customerInfo || $this->pointsToRedeem <= 0) return 0;
+        
         $company = filament()->getTenant();
-        if (!$company->is_loyalty_enabled) return 0;
-        return $this->pointsToRedeem * (float) $company->loyalty_point_value;
+        
+        $pointValue = (float) ($company->loyalty_point_value ?? 1); 
+        
+        return $this->pointsToRedeem * $pointValue;
     }
 
     public function getGrandTotal()
@@ -852,9 +871,13 @@ class PosCashier extends Page
             ->get();
     }
 
-    // =========================================================================
-    // SUBMIT TRANSACTION
-    // =========================================================================
+    public function getHasAvailableVouchersProperty()
+    {
+        return Voucher::where('company_id', filament()->getTenant()->id)
+            ->where('is_active', true)
+            ->exists();
+    }
+
     // =========================================================================
     // SUBMIT TRANSACTION
     // =========================================================================
@@ -888,7 +911,6 @@ class PosCashier extends Page
                         $child = DB::table('products')->where('id', $comp->child_product_id)->first();
                         
                         if ($child && $child->item_type === 'goods') {
-                            // KUNCI PERBAIKAN 1: Cari faktor konversi dari UoM komponen
                             $compFactor = 1;
                             if (!empty($comp->uom_id)) {
                                 $uomPivot = DB::table('product_uoms')
@@ -1130,7 +1152,9 @@ class PosCashier extends Page
             }
         }
 
-        if ($transaction->customer_id && $company->is_loyalty_enabled && $company->loyalty_spend_amount > 0) {
+        $hasCrm = data_get($company?->subscriptionPlan?->features, 'crm.membership') === true;
+
+        if ($transaction->customer_id && $hasCrm && $company->loyalty_spend_amount > 0) {
             $earnedMultiplier = floor($transaction->grand_total / $company->loyalty_spend_amount);
             $earnedPoints = $earnedMultiplier * (int) $company->loyalty_point_earned; 
 
@@ -1158,7 +1182,6 @@ class PosCashier extends Page
                 foreach ($components as $comp) {
                     $child = DB::table('products')->where('id', $comp->child_product_id)->first();
                     if ($child && $child->item_type === 'goods') {
-                        // KUNCI PERBAIKAN 2: Cari faktor konversi UoM untuk stok akhir
                         $compFactor = 1;
                         if (!empty($comp->uom_id)) {
                             $uomPivot = DB::table('product_uoms')
@@ -1217,4 +1240,3 @@ class PosCashier extends Page
     }
 }
 ?>
-

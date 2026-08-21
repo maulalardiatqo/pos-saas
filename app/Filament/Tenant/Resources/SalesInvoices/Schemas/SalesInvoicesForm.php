@@ -15,6 +15,8 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\RawJs;
 use Illuminate\Support\Facades\DB;
+use App\Models\Customer;
+use Filament\Facades\Filament;
 
 class SalesInvoiceForm
 {
@@ -31,7 +33,14 @@ class SalesInvoiceForm
         $discount = (float) str_replace('.', '', $get('discount') ?? 0);
         $tax = (float) str_replace('.', '', $get('tax') ?? 0);
         
-        $grandTotal = $subtotal - $discount + $tax;
+        // Kalkulasi Potongan Poin
+        $pointsToRedeem = (int) ($get('points_to_redeem') ?? 0);
+        $pointValue = (float) (filament()->getTenant()->loyalty_point_value ?? 1);
+        $pointDiscount = $pointsToRedeem * $pointValue;
+        
+        $grandTotal = $subtotal - $discount - $pointDiscount + $tax;
+        if ($grandTotal < 0) $grandTotal = 0;
+        
         $amountPaid = (float) str_replace('.', '', $get('amount_paid') ?? 0);
 
         $set('subtotal', $subtotal);
@@ -82,17 +91,29 @@ class SalesInvoiceForm
                             ->relationship('customer', 'name', fn($query) => $query->where('is_active', true))
                             ->searchable()
                             ->preload()
+                            ->live() // Memungkinkan pembaruan saldo poin secara real-time
+                            ->afterStateUpdated(fn (Set $set) => $set('points_to_redeem', 0))
                             ->required()
+                            // ==============================================================
+                            // PERBAIKAN: MODAL CREATE CUSTOMER
+                            // ==============================================================
+                            ->createOptionModalHeading('Tambah Pelanggan Baru')
                             ->createOptionForm([
                                 TextInput::make('code')
                                     ->label('Kode Pelanggan')
                                     ->required()
                                     ->maxLength(50)
+                                    ->unique(
+                                        ignoreRecord: true,
+                                        modifyRuleUsing: fn ($rule) => $rule->where('company_id', Filament::getTenant()->id)
+                                    )
                                     ->default(fn () => 'CUST-' . strtoupper(str()->random(5))),
+                                    
                                 TextInput::make('name')
                                     ->label('Nama Lengkap')
                                     ->required()
                                     ->maxLength(150),
+                                    
                                 Select::make('outlet_id')
                                     ->label('Pilih Outlet / Cabang')
                                     ->options(function () use ($isOwnerOrPlatform, $user) {
@@ -103,18 +124,99 @@ class SalesInvoiceForm
                                     ->placeholder('Pelanggan Umum (Semua Outlet)')
                                     ->searchable()
                                     ->preload(),
+                                    
                                 TextInput::make('phone')->label('Nomor Telepon')->tel()->maxLength(20),
                                 TextInput::make('email')->label('Email')->email()->maxLength(100),
                                 Textarea::make('address')->label('Alamat Lengkap')->rows(2)->columnSpanFull(),
+
+                                // TAMBAHAN KENDARAAN (BENGKEL MOTOR)
+                                \Filament\Forms\Components\Repeater::make('vehicles')
+                                    ->label('Daftar Kendaraan (Motor)')
+                                    ->addActionLabel('Tambah Kendaraan')
+                                    ->columnSpanFull()
+                                    ->visible(fn () => data_get(Filament::getTenant()?->subscriptionPlan, 'code') === 'bengkel_motor')
+                                    ->schema([
+                                        \Filament\Schemas\Components\Grid::make(['default' => 1, 'md' => 3])->schema([
+                                            Select::make('jenis')
+                                                ->label('Jenis Motor')
+                                                ->options([
+                                                    'matic'            => 'Matic',
+                                                    'bebek'            => 'Bebek',
+                                                    'sport'            => 'Sport',
+                                                    'adventure'        => 'Adventure',
+                                                    'motor elektronik' => 'Motor Elektronik',
+                                                ])
+                                                ->required(),
+
+                                            TextInput::make('type')
+                                                ->label('Tipe / Model')
+                                                ->placeholder('Contoh: Honda Beat FI')
+                                                ->required()
+                                                ->maxLength(255),
+
+                                            TextInput::make('nomor_plat')
+                                                ->label('Nomor Plat')
+                                                ->placeholder('Contoh: D 1234 ABC')
+                                                ->required()
+                                                ->maxLength(50)
+                                                ->distinct()
+                                                ->validationMessages([
+                                                    'distinct' => 'Plat nomor ini tidak boleh sama dengan baris lain.',
+                                                ])
+                                                ->extraAttributes(['style' => 'text-transform: uppercase;'])
+                                                ->dehydrateStateUsing(fn ($state) => strtoupper(str_replace(' ', '', (string) $state)))
+                                                ->rule(function () {
+                                                    return function (string $attribute, $value, \Closure $fail) {
+                                                        $cleanedValue = strtoupper(str_replace(' ', '', (string) $value));
+                                                        $companyId = Filament::getTenant()->id;
+                                                        
+                                                        $existingVehicle = \App\Models\CustomerVehicle::with('customer')
+                                                            ->where('company_id', $companyId)
+                                                            ->where('nomor_plat', $cleanedValue)
+                                                            ->first();
+
+                                                        if ($existingVehicle && $existingVehicle->customer) {
+                                                            $fail("Nomor Plat Sudah Terdaftar Atas Nama " . $existingVehicle->customer->name);
+                                                        }
+                                                    };
+                                                }),
+                                        ])
+                                    ])
+                                    ->defaultItems(0)
                             ])
-                            ->createOptionAction(function ($action) {
-                                return $action
-                                    ->modalHeading('Tambah Pelanggan Baru')
-                                    ->mutateFormDataUsing(function (array $data) {
-                                        $data['company_id'] = filament()->getTenant()->id;
-                                        $data['is_active'] = true;
-                                        return $data;
-                                    });
+                            // ==============================================================
+                            // PERBAIKAN: GUNAKAN createOptionUsing UNTUK MENYIMPAN MANUAL
+                            // ==============================================================
+                            ->createOptionUsing(function (array $data): string {
+                                $tenantId = Filament::getTenant()->id;
+
+                                // 1. Buat Customer
+                                $customer = \App\Models\Customer::create([
+                                    'company_id' => $tenantId,
+                                    'outlet_id'  => $data['outlet_id'] ?? null,
+                                    'code'       => $data['code'] ?? 'CUST-' . strtoupper(str()->random(5)),
+                                    'name'       => $data['name'],
+                                    'phone'      => $data['phone'] ?? null,
+                                    'email'      => $data['email'] ?? null,
+                                    'address'    => $data['address'] ?? null,
+                                    'is_active'  => true,
+                                ]);
+
+                                // 2. Buat Kendaraan Jika Ada (Khusus Bengkel)
+                                if (!empty($data['vehicles'])) {
+                                    foreach ($data['vehicles'] as $vehicle) {
+                                        \App\Models\CustomerVehicle::create([
+                                            'customer_id' => $customer->id,
+                                            'company_id'  => $tenantId,
+                                            'jenis'       => $vehicle['jenis'],
+                                            'type'        => $vehicle['type'],
+                                            'nomor_plat'  => strtoupper(str_replace(' ', '', $vehicle['nomor_plat'])),
+                                        ]);
+                                    }
+                                }
+
+                                // 3. Kembalikan ID Customer agar Select otomatis memilihnya
+                                return $customer->id;
                             }),
                         
                         Select::make('status')
@@ -183,6 +285,26 @@ class SalesInvoiceForm
                             ->default(0)
                             ->live(onBlur: true)
                             ->afterStateUpdated(fn (Get $get, Set $set) => self::updateTotals($get, $set)),
+                            
+                        // FIELD TUKAR POIN
+                        TextInput::make('points_to_redeem')
+                            ->label('Tukar Poin (Potongan)')
+                            ->numeric()
+                            ->default(0)
+                            ->live(onBlur: true)
+                            ->maxValue(function (Get $get) {
+                                $customerId = $get('customer_id');
+                                if (!$customerId) return 0;
+                                return Customer::find($customerId)?->points_balance ?? 0;
+                            })
+                            ->afterStateUpdated(fn (Get $get, Set $set) => self::updateTotals($get, $set))
+                            ->helperText(function (Get $get) {
+                                $customerId = $get('customer_id');
+                                if (!$customerId) return 'Pilih pelanggan untuk mengecek poin.';
+                                $customer = Customer::find($customerId);
+                                $pts = $customer ? $customer->points_balance : 0;
+                                return "Sisa Poin Pelanggan: " . number_format($pts, 0, ',', '.') . " Pts";
+                            }),
 
                         TextInput::make('tax')
                             ->label('Total Pajak')
@@ -232,9 +354,6 @@ class SalesInvoiceForm
                         ->live()
                         ->afterStateUpdated(fn (Get $get, Set $set) => self::updateTotals($get, $set))
                         ->deleteAction(fn ($action) => $action->after(fn (Get $get, Set $set) => self::updateTotals($get, $set)))
-                        // ====================================================================
-                        // PERBAIKAN: BACKEND ENFORCEMENT UNTUK BASE_QTY & COST_PRICE (HPP)
-                        // ====================================================================
                         ->mutateRelationshipDataBeforeCreateUsing(function (array $data): array {
                             $factor = 1;
                             if (!empty($data['uom_id'])) {
@@ -262,14 +381,14 @@ class SalesInvoiceForm
                             return $data;
                         })
                         ->schema([
-                            Select::make('product_id')
-                                ->relationship('product', 'name', fn ($query) => $query->where('item_type', '!=', 'service'))
+                           Select::make('product_id')
+                                ->relationship('product', 'name', fn ($query) => $query->where('item_type', '!=', ''))
                                 ->label('Item / Produk')
                                 ->searchable()
                                 ->preload()
                                 ->required()
                                 ->live()
-                                ->afterStateUpdated(function (Set $set, $state) {
+                                ->afterStateUpdated(function (Get $get, Set $set, $state) {
                                     $set('uom_id', null);
                                     $set('conversion_factor', 1);
                                     
@@ -280,14 +399,37 @@ class SalesInvoiceForm
                                             $set('_base_price', $product->base_price);
                                             $set('_base_cost_price', $product->cost_price);
                                             $set('cost_price', $product->cost_price);
+                                            
+                                            // Tandai jika produk adalah Jasa atau Bundle
+                                            $isServiceOrBundle = ($product->item_type === 'service' || in_array($product->product_type, ['bundle', 'recipe']));
+                                            $set('_is_service_or_bundle', $isServiceOrBundle);
+
+                                            // ==========================================================
+                                            // PERBAIKAN: Langsung tembak harga jika Jasa/Bundle
+                                            // ==========================================================
+                                            if ($isServiceOrBundle) {
+                                                $set('selling_price', number_format($product->base_price, 0, '', ''));
+                                                
+                                                $qty = (float) ($get('qty') ?: 1);
+                                                $disc = (float) str_replace('.', '', $get('discount_amount') ?? 0);
+                                                $set('subtotal', ($qty * $product->base_price) - $disc);
+                                            } else {
+                                                // Kosongkan harga agar user dipaksa pilih satuan dulu (untuk Barang Fisik)
+                                                $set('selling_price', null);
+                                                $set('subtotal', 0);
+                                            }
                                         }
                                     } else {
                                         $set('_base_price', 0);
                                         $set('_base_cost_price', 0);
                                         $set('cost_price', 0);
+                                        $set('_is_service_or_bundle', false);
+                                        $set('selling_price', null);
+                                        $set('subtotal', 0);
                                     }
                                 })
-                                ->columnSpan(3),
+                                // Lebarkan kolom otomatis jika Satuan disembunyikan
+                                ->columnSpan(fn (Get $get) => $get('_is_service_or_bundle') ? 5 : 3),
                             
                             TextInput::make('qty')
                                 ->label('Qty')
@@ -321,7 +463,11 @@ class SalesInvoiceForm
                                         ->whereIn('id', $uomIds)
                                         ->pluck('name', 'id');
                                 })
-                                ->required()
+                                // ==========================================================
+                                // PERBAIKAN: Sembunyikan & lepas wajib isi jika Jasa/Bundle
+                                // ==========================================================
+                                ->hidden(fn (Get $get) => $get('_is_service_or_bundle'))
+                                ->required(fn (Get $get) => !$get('_is_service_or_bundle'))
                                 ->live()
                                 ->afterStateUpdated(function (Get $get, Set $set, $state) {
                                     $productId = $get('product_id');
@@ -401,6 +547,8 @@ class SalesInvoiceForm
                             Hidden::make('discount_rate')->default(0),
                             Hidden::make('tax_rate')->default(0),
                             Hidden::make('tax_amount')->default(0),
+                            
+                            Hidden::make('_is_service_or_bundle')->default(false)->dehydrated(false),
                         ])
                         ->columns(12)
                         ->defaultItems(1)

@@ -127,11 +127,45 @@ class CustomerForm
                                         ->placeholder('Contoh: D 1234 ABC')
                                         ->required()
                                         ->maxLength(50)
+                                        // ==========================================================
+                                        // Mencegah input kembar dalam satu form (jika klik tambah 2x)
+                                        // ==========================================================
+                                        ->distinct()
+                                        ->validationMessages([
+                                            'distinct' => 'Plat nomor ini tidak boleh sama dengan baris lain di atas/bawahnya.',
+                                        ])
                                         ->extraAttributes(['style' => 'text-transform: uppercase;'])
-                                        ->dehydrateStateUsing(fn ($state) => strtoupper(str_replace(' ', '', (string) $state))),
+                                        ->dehydrateStateUsing(fn ($state) => strtoupper(str_replace(' ', '', (string) $state)))
+                                        // ==========================================================
+                                        // CUSTOM RULE: Validasi ke database beserta nama Customernya
+                                        // ==========================================================
+                                        ->rule(function (?\Illuminate\Database\Eloquent\Model $record) {
+                                            return function (string $attribute, $value, \Closure $fail) use ($record) {
+                                                // Bersihkan spasi & jadikan kapital untuk dicocokkan ke database
+                                                $cleanedValue = strtoupper(str_replace(' ', '', (string) $value));
+                                                $companyId = Filament::getTenant()->id;
+                                                
+                                                // Query mencari kendaraan dengan plat yang sama di tenant ini
+                                                $query = \App\Models\CustomerVehicle::with('customer')
+                                                    ->where('company_id', $companyId)
+                                                    ->where('nomor_plat', $cleanedValue);
+
+                                                // Jika dalam mode Edit, abaikan record kendaraan ini sendiri agar tidak error
+                                                if ($record && $record->exists) {
+                                                    $query->where('id', '!=', $record->id);
+                                                }
+
+                                                $existingVehicle = $query->first();
+
+                                                // Jika plat sudah ada di database, lempar pesan error kustom
+                                                if ($existingVehicle && $existingVehicle->customer) {
+                                                    $fail("Nomor Plat Sudah Terdaftar Atas Nama " . $existingVehicle->customer->name);
+                                                }
+                                            };
+                                        }),
                                 ])
                             ])
-                            ->defaultItems(0) // Default kosong agar tidak mengganggu jika belum ada motor
+                            ->defaultItems(0) 
                     ]),
 
                 /*

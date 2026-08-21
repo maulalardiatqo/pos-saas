@@ -33,7 +33,6 @@ class CreateSalesInvoice extends CreateRecord
                 $product = Product::find($productId);
                 if (!$product || $product->item_type === 'service') continue;
 
-                // --- PERBAIKAN: Selalu Query Conversion Factor (Anti Front-End Bug) ---
                 $factor = 1;
                 if (!empty($item['uom_id'])) {
                     $uomPivot = DB::table('product_uoms')->where('product_id', $productId)->where('uom_id', $item['uom_id'])->first();
@@ -86,11 +85,23 @@ class CreateSalesInvoice extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
+        // ==============================================================
+        // PENGECEKAN POIN UNTUK DATABASE
+        // ==============================================================
+        $pointsToRedeem = (int) ($data['points_to_redeem'] ?? 0);
+        $pointValue = (float) (filament()->getTenant()->loyalty_point_value ?? 1);
+        
+        $data['points_used'] = $pointsToRedeem;
+        $data['point_discount_amount'] = $pointsToRedeem * $pointValue;
+        
         $amountPaid = (float)($data['amount_paid'] ?? 0);
         $grandTotal = (float)($data['grand_total'] ?? 0);
         
         $data['amount_change'] = $amountPaid - $grandTotal;
         $data['status'] = $amountPaid >= $grandTotal ? 'completed' : 'pending';
+        
+        // Buang field palsu agar tidak error saat INSERT
+        unset($data['points_to_redeem']);
         
         return $data;
     }
@@ -98,6 +109,7 @@ class CreateSalesInvoice extends CreateRecord
     protected function afterCreate(): void
     {
         $transaction = $this->record;
+        $company = filament()->getTenant();
 
         if ($transaction->amount_paid > 0) {
             TransactionPayment::create([
@@ -118,9 +130,24 @@ class CreateSalesInvoice extends CreateRecord
             }
         }
 
-        $company = filament()->getTenant();
+        // ==============================================================
+        // LOGIKA PENUKARAN DAN PENDAPATAN POIN (SAMA DENGAN POS KASIR)
+        // ==============================================================
+        if ($transaction->points_used > 0 && $transaction->customer_id) {
+            PointHistory::create([
+                'company_id'   => $company->id, 
+                'customer_id'  => $transaction->customer_id,
+                'type'         => 'redeem', 
+                'amount'       => $transaction->points_used,
+                'reference_id' => $transaction->transaction_number, 
+                'description'  => 'Tukar poin dari Invoice: ' . $transaction->transaction_number,
+            ]);
+            Customer::where('id', $transaction->customer_id)->decrement('points_balance', $transaction->points_used);
+        }
 
-        if ($transaction->customer_id && $company->is_loyalty_enabled && $company->loyalty_spend_amount > 0) {
+        $hasCrm = data_get($company?->subscriptionPlan?->features, 'crm.membership') === true;
+
+        if ($transaction->customer_id && $hasCrm && $company->loyalty_spend_amount > 0) {
             $earnedMultiplier = floor($transaction->grand_total / $company->loyalty_spend_amount);
             $earnedPoints = $earnedMultiplier * (int) $company->loyalty_point_earned; 
 
@@ -186,7 +213,6 @@ class CreateSalesInvoice extends CreateRecord
                 $stockRecord->lockForUpdate();
                 
                 $balanceBefore = (float) $stockRecord->qty;
-                // Karena kita sudah enforce di server, $item->base_qty SEKARANG PASTI bernilai 12 (jika Lusin)
                 $balanceAfter = $balanceBefore - $item->base_qty; 
                 $stockRecord->update(['qty' => $balanceAfter]);
 

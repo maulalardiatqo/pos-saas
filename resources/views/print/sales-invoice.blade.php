@@ -125,21 +125,79 @@
                 <td class="text-right">Rp {{ number_format($transaction->tax, 0, ',', '.') }}</td>
             </tr>
             @endif
+
+            <!-- TAMBAHAN: DISKON TUKAR POIN (REDEEM) -->
+            @if($transaction->point_discount_amount > 0)
+            <tr>
+                <th class="text-right" style="color: #3b82f6;">Tukar Poin ({{ $transaction->points_used }} Pts)</th>
+                <td class="text-right" style="color: #3b82f6;">- Rp {{ number_format($transaction->point_discount_amount, 0, ',', '.') }}</td>
+            </tr>
+            @endif
+
             <tr class="grand-total">
                 <th class="text-right">Grand Total</th>
                 <td class="text-right">Rp {{ number_format($transaction->grand_total, 0, ',', '.') }}</td>
             </tr>
-            <tr>
-                <th class="text-right">Sudah Dibayar (DP)</th>
-                <td class="text-right">Rp {{ number_format($transaction->amount_paid, 0, ',', '.') }}</td>
-            </tr>
+
+            <!-- ========================================================================= -->
+            <!-- PERBAIKAN: RIWAYAT PEMBAYARAN (DICICIL / LUNAS)                           -->
+            <!-- ========================================================================= -->
+            @if($transaction->payments && $transaction->payments->count() > 0)
+                <tr>
+                    <td colspan="2" style="padding: 15px 0 5px 0;">
+                        <div style="border-bottom: 1px dashed #cbd5e1; margin-bottom: 5px;"></div>
+                        <div style="font-size: 11px; color: #64748b; text-align: right; text-transform: uppercase;">Riwayat Pembayaran:</div>
+                    </td>
+                </tr>
+                @foreach($transaction->payments as $idx => $payment)
+                <tr>
+                    <th class="text-right" style="font-size: 12px; font-weight: normal; color: #475569; padding: 4px 12px;">
+                        Pembayaran {{ $idx + 1 }} 
+                        <span style="text-transform: uppercase; font-size: 10px;">({{ $payment->payment_method }})</span><br>
+                        <small style="color: #94a3b8;">{{ \Carbon\Carbon::parse($payment->payment_date)->format('d M Y - H:i') }}</small>
+                    </th>
+                    <td class="text-right" style="color: #15803d; padding: 4px 12px;">Rp {{ number_format($payment->amount, 0, ',', '.') }}</td>
+                </tr>
+                @endforeach
+                <tr>
+                    <td colspan="2" style="padding: 0;">
+                        <div style="border-bottom: 1px dashed #cbd5e1; margin-top: 5px;"></div>
+                    </td>
+                </tr>
+                <tr>
+                    <th class="text-right">Total Dibayar</th>
+                    <td class="text-right"><strong>Rp {{ number_format($transaction->amount_paid, 0, ',', '.') }}</strong></td>
+                </tr>
+            @else
+                <tr>
+                    <th class="text-right">Sudah Dibayar</th>
+                    <td class="text-right">Rp {{ number_format($transaction->amount_paid, 0, ',', '.') }}</td>
+                </tr>
+            @endif
+            <!-- ========================================================================= -->
+
             <tr>
                 <th class="text-right">Sisa Tagihan</th>
-                <td class="text-right"><strong>Rp {{ number_format(abs($transaction->amount_change), 0, ',', '.') }}</strong></td>
+                <td class="text-right"><strong style="color: #ef4444;">Rp {{ number_format(abs($transaction->amount_change), 0, ',', '.') }}</strong></td>
             </tr>
         </table>
     </div>
     <div class="clear"></div>
+    <div class="clear"></div>
+
+    <!-- TAMBAHAN: INFO PENAMBAHAN POIN -->
+    @php
+        $earnedPoint = \App\Models\PointHistory::where('reference_id', $transaction->transaction_number)
+                            ->where('type', 'earn')
+                            ->sum('amount');
+    @endphp
+
+    @if($earnedPoint > 0)
+        <div style="text-align: center; margin-top: 20px; border-top: 1px dashed #cbd5e1; padding-top: 15px; color: #3b82f6; font-size: 15px;">
+            Anda mendapatkan <strong>+{{ $earnedPoint }} Poin</strong><br>
+            dari transaksi ini. Kumpulkan terus poin Anda! 🎉
+        </div>
+    @endif
 
     <!-- Footer -->
     <div class="footer">

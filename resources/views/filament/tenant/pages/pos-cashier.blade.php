@@ -1,3 +1,4 @@
+
 <div x-on:focus-search.window="setTimeout(() => { $refs.searchInput.focus(); }, 50);">
     <x-filament-panels::page>
         @php
@@ -53,7 +54,7 @@
             .pos-right-side { background: var(--pos-bg-panel); border: 1px solid var(--pos-border); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--pos-shadow); transition: all 0.3s ease; }
 
             .layout-grid .pos-left-side { flex: 3; }
-            .layout-grid .pos-right-side { width: 380px; min-width: 380px; }
+            .layout-grid .pos-right-side { width: 420px; min-width: 420px; } /* Lebar kanan diperlebar agar tidak sempit */
             .layout-list .pos-left-side { flex: 5; } 
             .layout-list .pos-right-side { flex: 7; width: auto; min-width: 0; }
 
@@ -106,21 +107,27 @@
             .pos-customer-select:focus { border-color: #3b82f6; }
 
             .pos-cart-items-list { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
-            .pos-cart-table-header { display: grid; grid-template-columns: 5fr 3fr 2fr 2fr; gap: 0.5rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--pos-border); font-size: 0.75rem; font-weight: 800; color: var(--pos-text-muted); text-transform: uppercase; }
-            .pos-cart-row { display: grid; grid-template-columns: 5fr 3fr 2fr 2fr; gap: 0.5rem; padding-bottom: 0.85rem; border-bottom: 1px dashed var(--pos-border); align-items: center; }
-            .pos-cart-name { font-size: 0.8rem; font-weight: 700; color: var(--pos-text-main); margin: 0; line-height: 1.3; }
-            .pos-btn-delete { color: #ef4444; background: transparent; border: 1px solid transparent; padding: 0.25rem; border-radius: 6px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; margin-left: 0.5rem; }
+            
+            /* ========================================================================================= */
+            /* CSS PERBAIKAN: Melebarkan area Nama Barang dan mengunci lebar area QTY */
+            /* ========================================================================================= */
+            .pos-cart-table-header { display: grid; grid-template-columns: 1fr 90px 75px 95px; gap: 0.5rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--pos-border); font-size: 0.75rem; font-weight: 800; color: var(--pos-text-muted); text-transform: uppercase; }
+            .pos-cart-row { display: grid; grid-template-columns: 1fr 90px 75px 95px; gap: 0.5rem; padding-bottom: 0.85rem; border-bottom: 1px dashed var(--pos-border); align-items: center; }
+            
+            .pos-cart-name { font-size: 0.85rem; font-weight: 700; color: var(--pos-text-main); margin: 0; line-height: 1.4; word-break: break-word; }
+            .pos-btn-delete { color: #ef4444; background: transparent; border: 1px solid transparent; padding: 0.25rem; border-radius: 6px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
             .pos-btn-delete:hover { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); }
             
             .pos-cart-price-box { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; font-size: 0.75rem; color: var(--pos-text-muted); }
-            .pos-cart-uom-select { background: var(--pos-bg-input) !important; color: #3b82f6 !important; border: 1px solid var(--pos-border-strong) !important; border-radius: 4px; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.25rem; outline: none; cursor: pointer; appearance: auto; }
+            .pos-cart-uom-select { background: var(--pos-bg-input) !important; color: #3b82f6 !important; border: 1px solid var(--pos-border-strong) !important; border-radius: 4px; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.25rem; outline: none; cursor: pointer; appearance: auto; max-width: 100%; text-overflow: ellipsis; }
             
-            .pos-qty-actions { display: flex; align-items: center; justify-content: center; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 6px; overflow: hidden; height: 28px; }
+            .pos-qty-actions { display: flex; align-items: center; justify-content: center; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 6px; overflow: hidden; height: 30px; width: 90px; margin: 0 auto; }
             .pos-qty-btn { width: 1.5rem; height: 100%; background: transparent; border: none; color: var(--pos-text-main); font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; transition: background 0.2s; }
             .pos-qty-btn:hover { background: var(--pos-bg-hover); }
             .pos-qty-input { width: 2rem; height: 100%; background: transparent; border: none; border-left: 1px solid var(--pos-border-strong); border-right: 1px solid var(--pos-border-strong); color: var(--pos-text-main); text-align: center; font-size: 0.75rem; font-weight: 800; outline: none; border-radius: 0; padding: 0; }
             .pos-qty-input::-webkit-outer-spin-button, .pos-qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
             .pos-qty-input[type=number] { -moz-appearance: textfield; }
+            /* ========================================================================================= */
             
             .pos-cart-subtotal { font-size: 0.85rem; font-weight: 800; color: var(--pos-text-main); text-align: right; }
 
@@ -451,7 +458,7 @@
                                         @focus="searchFocused = true"
                                         @blur="setTimeout(() => searchFocused = false, 200)"
                                         class="pos-customer-select"
-                                        placeholder="-- Ketikan Data Customer --"
+                                        placeholder="-- Ketik Nama / No. HP / Plat Motor --"
                                         autocomplete="off"
                                         style="width: 100%; border: 1px solid var(--pos-border-strong); border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.75rem; font-weight: 600;">
 
@@ -506,6 +513,51 @@
                                 {{ $this->createCustomerAction }}
                             </div>
                         </div>
+
+                        <!-- ========================================================================= -->
+                        <!-- DISINI PERBAIKANNYA: INFORMASI MEMBERSHIP, POIN, DAN TUKAR HADIAH        -->
+                        <!-- ========================================================================= -->
+                        @if($customerInfo)
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; padding: 0.5rem; background: var(--pos-bg-hover); border-radius: 8px; border: 1px solid var(--pos-border-strong);">
+                                <div>
+                                    <span style="font-size: 0.65rem; color: var(--pos-text-muted); display: block; font-weight: 700; text-transform: uppercase;">Status Member</span>
+                                    <span style="font-size: 0.8rem; font-weight: 800; color: #eab308;">{{ $customerInfo['membership']['name'] ?? 'Reguler' }}</span>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span style="font-size: 0.65rem; color: var(--pos-text-muted); display: block; font-weight: 700; text-transform: uppercase;">Poin Aktif</span>
+                                    <span style="font-size: 0.8rem; font-weight: 800; color: #3b82f6;">{{ number_format($customerInfo['points_balance'] ?? 0, 0, ',', '.') }} Poin</span>
+                                </div>
+                            </div>
+                            
+                            <!-- TOMBOL KATALOG HADIAH -->
+                            @if(data_get(filament()->getTenant()?->subscriptionPlan?->features, 'crm.membership') === true && count($this->availableRewards) > 0)
+                                <div style="margin-top: 0.5rem; text-align: center; width: 100%;">
+                                    <button @click="showRewardModal = true" style="width: 100%; background: linear-gradient(135deg, #8b5cf6, #3b82f6); color: white; border: none; padding: 0.5rem; border-radius: 8px; font-weight: 800; font-size: 0.75rem; cursor: pointer; text-transform: uppercase;">
+                                        🎁 Buka Katalog Hadiah
+                                    </button>
+                                </div>
+                            @endif
+
+                            <!-- FORM TUKAR POIN (REDEEM CASHBACK) -->
+                            @if(data_get(filament()->getTenant()?->subscriptionPlan?->features, 'crm.membership') === true && ($customerInfo['points_balance'] ?? 0) > 0)
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; padding: 0.5rem 0; border-top: 1px dashed var(--pos-border);">
+                                    <span style="font-size: 0.75rem; font-weight: 700; color: var(--pos-text-main);">Tukar Poin (Potongan):</span>
+                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <input type="number" 
+                                            wire:model.live.debounce.500ms="pointsToRedeem" 
+                                            max="{{ $customerInfo['points_balance'] ?? 0 }}" 
+                                            min="0" 
+                                            class="pos-discount-field" 
+                                            style="width: 70px; padding: 0.25rem 0.5rem;" 
+                                            placeholder="0"
+                                            x-on:focus="$el.value == '0' ? $el.value = '' : $el.select()"
+                                            x-on:blur="$el.value == '' ? $el.value = '0' : null">
+                                        <span style="font-size: 0.7rem; font-weight: 700; color: var(--pos-text-muted);">Pts</span>
+                                    </div>
+                                </div>
+                            @endif
+                        @endif
+                    </div>
                     
                     <!-- List Item Nota -->
                     <div class="pos-cart-items-list">
@@ -514,7 +566,7 @@
                                 <div>Nama Barang</div>
                                 <div style="text-align: center;">Qty</div>
                                 <div style="text-align: right;">Harga</div>
-                                <div style="text-align: right; padding-right: 24px;">Total</div>
+                                <div style="text-align: right; padding-right: 32px;">Total</div>
                             </div>
                         @endif
 
@@ -564,7 +616,7 @@
                                 </div>
                                 
                                 <!-- SUBTOTAL & DELETE -->
-                                <div style="display: flex; justify-content: flex-end; align-items: center;">
+                                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.5rem;">
                                     <div class="pos-cart-subtotal">{{ number_format((float)$item['price'] * (float)$item['qty'], 0, ',', '.') }}</div>
                                     <button wire:click="removeItem('{{ $key }}')" class="pos-btn-delete" title="Hapus Item">
                                         <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -583,17 +635,19 @@
                     <div class="pos-checkout-box">
                         
                         <!-- INPUT VOUCHER PROMO -->
-                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-                            @if($appliedVoucher)
-                                <div style="flex: 1; display: flex; justify-content: space-between; align-items: center; background: rgba(34, 197, 94, 0.1); border: 1px dashed #22c55e; padding: 0.4rem 0.75rem; border-radius: 6px;">
-                                    <span style="font-size: 0.75rem; font-weight: 800; color: #22c55e;">✅ {{ $appliedVoucher['code'] }}</span>
-                                    <button wire:click="removeVoucher" style="background: none; border: none; color: #ef4444; font-size: 0.75rem; font-weight: 700; cursor: pointer;">HAPUS</button>
-                                </div>
-                            @else
-                                <input type="text" wire:model="voucherCode" placeholder="Kode Kupon / Voucher..." style="flex: 1; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 6px; padding: 0.4rem 0.75rem; color: var(--pos-text-main); font-size: 0.75rem; outline: none; text-transform: uppercase;">
-                                <button wire:click="applyVoucher" style="background: #3b82f6; border: none; color: white; border-radius: 6px; padding: 0.4rem 0.75rem; font-size: 0.75rem; font-weight: 700; cursor: pointer;">TERAPKAN</button>
-                            @endif
-                        </div>
+                        @if($this->hasAvailableVouchers)
+                            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                @if($appliedVoucher)
+                                    <div style="flex: 1; display: flex; justify-content: space-between; align-items: center; background: rgba(34, 197, 94, 0.1); border: 1px dashed #22c55e; padding: 0.4rem 0.75rem; border-radius: 6px;">
+                                        <span style="font-size: 0.75rem; font-weight: 800; color: #22c55e;">✅ {{ $appliedVoucher['code'] }}</span>
+                                        <button wire:click="removeVoucher" style="background: none; border: none; color: #ef4444; font-size: 0.75rem; font-weight: 700; cursor: pointer;">HAPUS</button>
+                                    </div>
+                                @else
+                                    <input type="text" wire:model="voucherCode" placeholder="Kode Kupon / Voucher..." style="flex: 1; background: var(--pos-bg-input); border: 1px solid var(--pos-border-strong); border-radius: 6px; padding: 0.4rem 0.75rem; color: var(--pos-text-main); font-size: 0.75rem; outline: none; text-transform: uppercase;">
+                                    <button wire:click="applyVoucher" style="background: #3b82f6; border: none; color: white; border-radius: 6px; padding: 0.4rem 0.75rem; font-size: 0.75rem; font-weight: 700; cursor: pointer;">TERAPKAN</button>
+                                @endif
+                            </div>
+                        @endif
 
                         <!-- RINCIAN TAGIHAN -->
                         <div class="pos-row-summary">
@@ -652,7 +706,7 @@
                             <div style="display: flex; flex-direction: column;">
                                 <span class="pos-grand-lbl">TOTAL BAYAR</span>
                                 
-                                @if($customerInfo && filament()->getTenant()->is_loyalty_enabled && filament()->getTenant()->loyalty_spend_amount > 0)
+                                @if($customerInfo && data_get(filament()->getTenant()?->subscriptionPlan?->features, 'crm.membership') === true && filament()->getTenant()->loyalty_spend_amount > 0)
                                     @php
                                         $estPts = floor($this->getGrandTotal() / filament()->getTenant()->loyalty_spend_amount) * filament()->getTenant()->loyalty_point_earned;
                                     @endphp

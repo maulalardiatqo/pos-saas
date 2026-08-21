@@ -44,11 +44,17 @@ class ViewSalesInvoice extends ViewRecord
                 ->color('success')
                 ->hidden(fn () => $this->record->status === 'completed')
                 ->form([
+                    // ==============================================================
+                    // PERBAIKAN: Format uang dan Disabled
+                    // ==============================================================
                     TextInput::make('sisa_tagihan')
                         ->label('Sisa Tagihan Saat Ini')
                         ->prefix('Rp')
-                        ->default(fn () => number_format(abs($this->record->amount_change), 0, '', ''))
-                        ->readOnly(),
+                        ->mask(RawJs::make('$money($input, \',\', \'.\', 0)'))
+                        ->default(fn () => abs($this->record->amount_change))
+                        ->disabled()
+                        ->dehydrated(false), // Mencegah field ini terkirim saat submit
+                        
                     TextInput::make('amount')
                         ->label('Nominal Dibayar (Cicilan/Lunas)')
                         ->prefix('Rp')
@@ -56,19 +62,23 @@ class ViewSalesInvoice extends ViewRecord
                         ->stripCharacters('.')
                         ->required()
                         ->default(fn () => abs($this->record->amount_change)),
+                        
                     DatePicker::make('payment_date')
                         ->label('Tanggal Pembayaran')
                         ->default(now())
                         ->required(),
+                        
                     Select::make('payment_method')
                         ->label('Metode Pembayaran')
                         ->options(['cash' => 'Cash / Tunai', 'transfer' => 'Transfer Bank', 'qris' => 'QRIS', 'ewallet' => 'E-Wallet'])
                         ->default('transfer')
                         ->required(),
+                        
                     Select::make('account_id')
                         ->label('Masuk Ke Rekening / Kas')
                         ->options(Account::where('company_id', filament()->getTenant()->id)->where('is_active', true)->pluck('name', 'id'))
                         ->required(),
+                        
                     TextInput::make('notes')
                         ->label('Catatan (Opsional)')
                         ->maxLength(255),
@@ -124,6 +134,11 @@ class ViewSalesInvoice extends ViewRecord
                             ->color(fn ($state) => $state === 'completed' ? 'success' : 'warning')
                             ->formatStateUsing(fn ($state) => $state === 'completed' ? 'LUNAS' : 'BELUM LUNAS'),
                         TextEntry::make('notes')->label('Catatan / Jatuh Tempo'),
+                        
+                        // Menambahkan info poin ke tampilan detail
+                        TextEntry::make('points_used')->label('Poin Ditukar')->badge()->color('info')->visible(fn($record) => $record->points_used > 0),
+                        TextEntry::make('point_discount_amount')->label('Diskon Poin')->money('IDR', locale: 'id')->color('success')->visible(fn($record) => $record->point_discount_amount > 0),
+                        
                         TextEntry::make('grand_total')->label('Total Tagihan')->money('IDR', locale: 'id')->weight('bold'),
                         TextEntry::make('amount_paid')->label('Sudah Dibayar')->money('IDR', locale: 'id')->color('success'),
                         TextEntry::make('amount_change')->label('Sisa Tagihan (Hutang)')
@@ -143,28 +158,28 @@ class ViewSalesInvoice extends ViewRecord
                                             ->label('Nama Barang')
                                             ->weight('bold')
                                             ->columnSpan(3),
-                                            
+                                        
                                         TextEntry::make('qty')
                                             ->label('Qty')
                                             ->columnSpan(1),
-                                            
+                                        
                                         TextEntry::make('uom.name')
                                             ->label('Satuan')
                                             ->default('-')
                                             ->columnSpan(2),
-                                            
+                                        
                                         TextEntry::make('selling_price')
                                             ->label('Harga Satuan')
                                             ->money('IDR', locale: 'id')
                                             ->columnSpan(2),
-                                            
+                                        
                                         TextEntry::make('discount')
                                             ->label('Diskon Item')
                                             ->getStateUsing(fn ($record) => ($record->qty * $record->selling_price) - $record->subtotal)
                                             ->money('IDR', locale: 'id')
                                             ->color('danger')
                                             ->columnSpan(2),
-                                            
+                                        
                                         TextEntry::make('subtotal')
                                             ->label('Total Bersih')
                                             ->money('IDR', locale: 'id')
