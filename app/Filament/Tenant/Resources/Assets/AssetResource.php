@@ -95,7 +95,7 @@ class AssetResource extends Resource
                     ]),
             ])
             ->actions([
-                Tables\Actions\Action::make('mutasi')
+                Action::make('mutasi')
                     ->label('Mutasi')
                     ->icon('heroicon-o-arrows-right-left')
                     ->color('warning')
@@ -138,10 +138,10 @@ class AssetResource extends Resource
                     ->modalDescription('Pilih cabang tujuan untuk memindahkan fisik aset ini.')
                     ->modalSubmitActionLabel('Pindahkan Sekarang'),
 
-                Tables\Actions\EditAction::make(),
+                EditAction::make(),
             ])
             ->bulkActions([
-                Tables\Actions\DeleteBulkAction::make(),
+                DeleteBulkAction::make(),
             ]);
     }
 
