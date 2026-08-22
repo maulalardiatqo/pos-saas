@@ -7,23 +7,18 @@ use App\Filament\Tenant\Resources\Assets\Pages\CreateAsset;
 use App\Filament\Tenant\Resources\Assets\Pages\EditAsset;
 use App\Filament\Tenant\Resources\Assets\Pages\ListAssets;
 use App\Filament\Tenant\Resources\Assets\Pages\ViewAsset;
+use App\Filament\Tenant\Resources\Assets\Schemas\AssetForm; // IMPORT SCHEMA
 use App\Models\Asset;
-use BackedEnum;
-use Filament\Forms;
-use Filament\Schemas\Schema;
-use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Resources\Resource;
-use Filament\Support\Icons\Heroicon;
+use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-use Illuminate\Database\Eloquent\Model; // <-- Ditambahkan untuk Type-Hinting Hak Akses
+use Illuminate\Database\Eloquent\Model;
 use Filament\Actions\ViewAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\DeleteBulkAction;
-use Filament\Support\RawJs;
 use Filament\Actions\Action;
 
 class AssetResource extends Resource
@@ -42,24 +37,12 @@ class AssetResource extends Resource
     public static function canViewAny(): bool
     {
         $user = auth()->user();
-        // Hanya muncul untuk Owner, atau karyawan yang punya hak akses 'inventory.asset'
         return $user && ($user->isOwner() || $user->hasPermission('inventory.asset'));
     }
 
-    public static function canCreate(): bool
-    {
-        return static::canViewAny();
-    }
-
-    public static function canEdit(Model $record): bool
-    {
-        return static::canViewAny();
-    }
-
-    public static function canDelete(Model $record): bool
-    {
-        return static::canViewAny();
-    }
+    public static function canCreate(): bool { return static::canViewAny(); }
+    public static function canEdit(Model $record): bool { return static::canViewAny(); }
+    public static function canDelete(Model $record): bool { return static::canViewAny(); }
 
     /*
     |--------------------------------------------------------------------------
@@ -68,100 +51,8 @@ class AssetResource extends Resource
     */
     public static function form(Schema $schema): Schema
     {
-        return $schema
-            ->schema([
-                Section::make('Informasi Utama')
-                    ->schema([
-                        Forms\Components\TextInput::make('name')
-                            ->label('Nama Aset')
-                            ->placeholder('Contoh: Printer Epson L3110 / Meja Kasir')
-                            ->required()
-                            ->maxLength(255),
-                        Forms\Components\TextInput::make('asset_code')
-                            ->label('Kode Aset / Serial Number')
-                            ->required()
-                            ->unique(ignoreRecord: true)
-                            ->maxLength(255),
-                        Forms\Components\Select::make('category')
-                            ->label('Kategori')
-                            ->options([
-                                'Elektronik' => 'Elektronik',
-                                'Furnitur'   => 'Furnitur',
-                                'Mesin'      => 'Mesin',
-                                'Kendaraan'  => 'Kendaraan',
-                                'Lainnya'    => 'Lainnya',
-                            ])
-                            ->required(),
-                        Forms\Components\Select::make('outlet_id')
-                            ->label('Penempatan (Outlet)')
-                            ->relationship('outlet', 'name')
-                            ->required(),
-                    ])->columns(2),
-
-                Section::make('Detail Perolehan & Keuangan')
-                    ->schema([
-                        Forms\Components\Select::make('acquisition_type')
-                            ->label('Jenis Perolehan')
-                            ->options([
-                                'opening'  => 'Aset Bawaan / Saldo Awal (Tidak memotong Kas)',
-                                'purchase' => 'Pembelian Baru (Otomatis Memotong Kas)',
-                            ])
-                            ->required()
-                            ->live()
-                            ->dehydrated(false)
-                            ->helperText('Pilih "Pembelian Baru" jika aset dibeli dengan uang toko saat ini.'),
-
-                        Forms\Components\Select::make('payment_method')
-                            ->label('Metode Pembayaran')
-                            ->options([
-                                'cash'     => 'Tunai (Cash)',
-                                'qris'     => 'QRIS',
-                                'transfer' => 'Transfer Bank',
-                            ])
-                            ->visible(fn (Get $get) => $get('acquisition_type') === 'purchase')
-                            ->required(fn (Get $get) => $get('acquisition_type') === 'purchase')
-                            ->dehydrated(false),
-
-                        // TAMBAHAN: Pilih Sumber Dana untuk pembelian aset
-                        Forms\Components\Select::make('account_id')
-                            ->label('Sumber Dana (Rekening/Kas)')
-                            ->options(fn () => \App\Models\Account::where('is_active', true)->pluck('name', 'id'))
-                            ->visible(fn (Get $get) => $get('acquisition_type') === 'purchase')
-                            ->required(fn (Get $get) => $get('acquisition_type') === 'purchase')
-                            ->searchable()
-                            ->preload()
-                            // dehydrated(false) memastikan form tidak melempar error kolom 'account_id' not found di tabel assets
-                            ->dehydrated(false),
-
-                        Forms\Components\DatePicker::make('purchase_date')
-                            ->label('Tanggal Perolehan/Pembelian')
-                            ->required(),
-                        Forms\Components\TextInput::make('purchase_price')
-                            ->label('Harga Beli / Nilai Aset')
-                            ->required()
-                            ->prefix('Rp')
-                            ->mask(RawJs::make('$money($input, \',\', \'.\')'))
-                            ->stripCharacters('.')
-                            ->numeric(),
-                    ])->columns(2),
-
-                Section::make('Kondisi')
-                    ->schema([
-                        Forms\Components\Select::make('status')
-                            ->label('Status Fisik')
-                            ->options([
-                                'active'      => 'Aktif / Digunakan',
-                                'maintenance' => 'Dalam Perbaikan (Servis)',
-                                'broken'      => 'Rusak',
-                                'disposed'    => 'Dijual / Dibuang',
-                            ])
-                            ->default('active')
-                            ->required(),
-                        Forms\Components\Textarea::make('notes')
-                            ->label('Catatan Fisik (Opsional)')
-                            ->columnSpanFull(),
-                    ]),
-            ]);
+        // PERBAIKAN: Gunakan konfigurasi eksternal dari AssetForm agar rapi
+        return AssetForm::configure($schema);
     }
 
     public static function table(Table $table): Table
@@ -204,12 +95,12 @@ class AssetResource extends Resource
                     ]),
             ])
             ->actions([
-                Action::make('mutasi')
+                Tables\Actions\Action::make('mutasi')
                     ->label('Mutasi')
                     ->icon('heroicon-o-arrows-right-left')
                     ->color('warning')
                     ->form([
-                        Forms\Components\Select::make('to_outlet_id')
+                        \Filament\Forms\Components\Select::make('to_outlet_id')
                             ->label('Pindah ke Outlet')
                             ->options(function (Asset $record) {
                                 return \App\Models\Outlet::where('company_id', $record->company_id)
@@ -218,7 +109,7 @@ class AssetResource extends Resource
                             })
                             ->required()
                             ->searchable(),
-                        Forms\Components\Textarea::make('remarks')
+                        \Filament\Forms\Components\Textarea::make('remarks')
                             ->label('Catatan Mutasi')
                             ->placeholder('Contoh: Dipindah karena cabang baru buka / Dipinjam sementara.')
                             ->required(),
@@ -247,10 +138,10 @@ class AssetResource extends Resource
                     ->modalDescription('Pilih cabang tujuan untuk memindahkan fisik aset ini.')
                     ->modalSubmitActionLabel('Pindahkan Sekarang'),
 
-                EditAction::make(),
+                Tables\Actions\EditAction::make(),
             ])
             ->bulkActions([
-                DeleteBulkAction::make(),
+                Tables\Actions\DeleteBulkAction::make(),
             ]);
     }
 
