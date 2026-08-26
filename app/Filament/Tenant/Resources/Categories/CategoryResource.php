@@ -45,7 +45,7 @@ class CategoryResource extends Resource
     {
         /** @var \App\Models\User $user */
         $user = auth()->user();
-        return $user->hasPermission('categories.create');
+        return true;
     }
 
     public static function canEdit(Model $record): bool
