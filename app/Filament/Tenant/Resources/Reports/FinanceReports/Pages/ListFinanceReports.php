@@ -90,6 +90,7 @@ class ListFinanceReports extends ListRecords
         $currPendapatanPOS = (clone $currQ)->where('in_out', 'in')->whereNotIn('type', ['opening_balance', 'invoice'])->sum('grand_total');
         $currPendapatanInvoice = DB::table('transactions')
             ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
+            ->where('status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
             ->whereBetween('created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
@@ -102,6 +103,7 @@ class ListFinanceReports extends ListRecords
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->where('transactions.company_id', $tenantId)
             ->whereIn('transactions.type', ['sale', 'invoice'])
+            ->where('transactions.status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
             ->whereNull('transactions.deleted_at')
             ->whereBetween('transactions.created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
@@ -134,6 +136,7 @@ class ListFinanceReports extends ListRecords
         $prevPendapatanPOS = (clone $prevQ)->where('in_out', 'in')->whereNotIn('type', ['opening_balance', 'invoice'])->sum('grand_total');
         $prevPendapatanInvoice = DB::table('transactions')
             ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
+            ->where('status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
             ->whereBetween('created_at', [$prevStart, $prevEnd])
             ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
@@ -145,6 +148,7 @@ class ListFinanceReports extends ListRecords
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->where('transactions.company_id', $tenantId)
             ->whereIn('transactions.type', ['sale', 'invoice'])
+            ->where('transactions.status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
             ->whereNull('transactions.deleted_at')
             ->whereBetween('transactions.created_at', [$prevStart, $prevEnd])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
@@ -173,6 +177,7 @@ class ListFinanceReports extends ListRecords
 
         $trendInInvoice = DB::table('transactions')
             ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
+            ->where('status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
             ->whereBetween('created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
@@ -187,6 +192,7 @@ class ListFinanceReports extends ListRecords
         $trendHpp = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->where('transactions.company_id', $tenantId)->whereIn('transactions.type', ['sale', 'invoice'])->whereNull('transactions.deleted_at')
+            ->where('transactions.status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
             ->whereBetween('transactions.created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('transactions.outlet_id', $this->outletId))
