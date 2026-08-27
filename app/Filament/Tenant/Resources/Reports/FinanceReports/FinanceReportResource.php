@@ -159,8 +159,11 @@ class FinanceReportResource extends Resource
     {
         $query = parent::getEloquentQuery()
             ->where(function ($q) {
+                // PERBAIKAN: Hanya loloskan POS (Sale) yang lunas, dan Invoice yang lunas/belum lunas
                 $q->where('status', 'completed')
-                  ->orWhere('type', 'invoice');
+                  ->orWhere(function ($sq) {
+                      $sq->where('type', 'invoice')->whereIn('status', ['pending', 'completed']);
+                  });
             })
             ->whereNotNull('in_out')
             ->whereNull('deleted_at'); 

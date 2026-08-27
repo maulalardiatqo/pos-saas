@@ -70,27 +70,22 @@ class ListFinanceReports extends ListRecords
         // -- 1. KEUANGAN CURRENT (PERIODE INI) --
         // =======================================================
         
-        // TOTAL UANG MASUK REAL (Arus Kas IN) = Penjualan Tunai POS/Revenue + Seluruh Cicilan Invoice yang masuk di periode ini
         $currInNonInvoice = (clone $currQ)->where('in_out', 'in')->where('type', '!=', 'invoice')->sum('grand_total');
         $currInInvoicePayments = (clone $currPayQ)->sum('amount');
         $currIn = $currInNonInvoice + $currInInvoicePayments;
         
-        // TOTAL UANG KELUAR REAL (Untuk Arus Kas)
         $currOutTotal = (clone $currQ)->where('in_out', 'out')->sum('grand_total');
-        
-        // BEBAN OPERASIONAL MURNI (Untuk Laba Rugi)
         $currOutOps = (clone $currQ)->where('in_out', 'out')->whereNotIn('type', ['purchaseorder', 'purchase'])->sum('grand_total');
-        
-        $currAdminFee = (clone $currQ)->sum('admin_fee'); // TOTAL POTONGAN MIDTRANS
+        $currAdminFee = (clone $currQ)->sum('admin_fee'); 
 
-        // Arus Kas Bersih (Net Cash)
         $currNetCash = $currIn - $currOutTotal - $currAdminFee;
 
-        // PENDAPATAN MURNI (Accrual Basis: Menghitung POS + Nilai Kontrak Invoice Penjualan tanpa peduli sudah lunas/belum)
         $currPendapatanPOS = (clone $currQ)->where('in_out', 'in')->whereNotIn('type', ['opening_balance', 'invoice'])->sum('grand_total');
+        
+        // PERBAIKAN: Gunakan Whitelist Status
         $currPendapatanInvoice = DB::table('transactions')
             ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
-            ->where('status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
+            ->whereIn('status', ['pending', 'completed']) 
             ->whereBetween('created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
@@ -98,12 +93,17 @@ class ListFinanceReports extends ListRecords
 
         $currPendapatan = $currPendapatanPOS + $currPendapatanInvoice;
         
-        // HPP (Cost of Goods Sold) dari transaksi penjualan POS & Invoice
+        // PERBAIKAN: HPP hanya untuk POS yang Lunas & Invoice yang Valid
         $itemCurr = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->where('transactions.company_id', $tenantId)
-            ->whereIn('transactions.type', ['sale', 'invoice'])
-            ->where('transactions.status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
+            ->where(function ($q) {
+                $q->where(function ($sq) {
+                    $sq->where('transactions.type', 'sale')->where('transactions.status', 'completed');
+                })->orWhere(function ($sq) {
+                    $sq->where('transactions.type', 'invoice')->whereIn('transactions.status', ['pending', 'completed']);
+                });
+            })
             ->whereNull('transactions.deleted_at')
             ->whereBetween('transactions.created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
@@ -116,7 +116,6 @@ class ListFinanceReports extends ListRecords
         $currBebanOps = $currOutOps + $currAdminFee; 
         $currTotalBeban = $currHpp + $currBebanOps;
         
-        // Laba Bersih
         $currLaba = $currPendapatan - $currTotalBeban;
         $currMargin = $currPendapatan > 0 ? ($currLaba / $currPendapatan) * 100 : 0;
 
@@ -134,9 +133,11 @@ class ListFinanceReports extends ListRecords
         $prevNetCash = $prevIn - $prevOutTotal - $prevAdminFee;
 
         $prevPendapatanPOS = (clone $prevQ)->where('in_out', 'in')->whereNotIn('type', ['opening_balance', 'invoice'])->sum('grand_total');
+        
+        // PERBAIKAN: Gunakan Whitelist Status
         $prevPendapatanInvoice = DB::table('transactions')
             ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
-            ->where('status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
+            ->whereIn('status', ['pending', 'completed'])
             ->whereBetween('created_at', [$prevStart, $prevEnd])
             ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
@@ -144,11 +145,17 @@ class ListFinanceReports extends ListRecords
 
         $prevPendapatan = $prevPendapatanPOS + $prevPendapatanInvoice;
         
+        // PERBAIKAN: HPP hanya untuk POS yang Lunas & Invoice yang Valid
         $itemPrev = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->where('transactions.company_id', $tenantId)
-            ->whereIn('transactions.type', ['sale', 'invoice'])
-            ->where('transactions.status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
+            ->where(function ($q) {
+                $q->where(function ($sq) {
+                    $sq->where('transactions.type', 'sale')->where('transactions.status', 'completed');
+                })->orWhere(function ($sq) {
+                    $sq->where('transactions.type', 'invoice')->whereIn('transactions.status', ['pending', 'completed']);
+                });
+            })
             ->whereNull('transactions.deleted_at')
             ->whereBetween('transactions.created_at', [$prevStart, $prevEnd])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
@@ -177,7 +184,7 @@ class ListFinanceReports extends ListRecords
 
         $trendInInvoice = DB::table('transactions')
             ->where('company_id', $tenantId)->where('type', 'invoice')->whereNull('deleted_at')
-            ->where('status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
+            ->whereIn('status', ['pending', 'completed']) 
             ->whereBetween('created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('outlet_id', $this->outletId))
@@ -191,8 +198,14 @@ class ListFinanceReports extends ListRecords
 
         $trendHpp = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
-            ->where('transactions.company_id', $tenantId)->whereIn('transactions.type', ['sale', 'invoice'])->whereNull('transactions.deleted_at')
-            ->where('transactions.status', '!=', 'void') // <-- PERBAIKAN: Kecualikan Void
+            ->where('transactions.company_id', $tenantId)->whereNull('transactions.deleted_at')
+            ->where(function ($q) {
+                $q->where(function ($sq) {
+                    $sq->where('transactions.type', 'sale')->where('transactions.status', 'completed');
+                })->orWhere(function ($sq) {
+                    $sq->where('transactions.type', 'invoice')->whereIn('transactions.status', ['pending', 'completed']);
+                });
+            })
             ->whereBetween('transactions.created_at', [$start, $end])
             ->when(!$isOwner, fn($q) => $q->where('transactions.outlet_id', $user->outlet_id))
             ->when($isOwner && $this->outletId, fn($q) => $q->where('transactions.outlet_id', $this->outletId))
@@ -247,7 +260,6 @@ class ListFinanceReports extends ListRecords
             ];
         }
 
-        // Masukkan Penjualan Invoice ke Donut Chart jika ada
         if ($currPendapatanInvoice > 0) {
             $totalProporsi += $currPendapatanInvoice;
             $proporsi[] = [
