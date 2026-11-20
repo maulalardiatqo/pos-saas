@@ -1,4 +1,3 @@
-
 <div x-on:focus-search.window="setTimeout(() => { $refs.searchInput.focus(); }, 50);">
     <x-filament-panels::page>
         @php
@@ -307,7 +306,7 @@
                         <!-- Search Icon -->
                         <div style="padding-left: 0.5rem; display: flex; align-items: center;">
                             <svg x-show="!$wire.isScanMode" style="width: 20px; height: 20px; color: var(--pos-text-muted);" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"></path></svg>
-                            <svg x-show="$wire.isScanMode" style="width: 20px; height: 20px; color: #f97316;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5zM16.5 16.5h3.375v3.375M16.5 16.5V19.5m0-3.375h-3.375m3.375 0h3.375"></path></svg>
+                            <svg x-show="$wire.isScanMode" style="width: 20px; height: 20px; color: #f97316;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125-1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5zM16.5 16.5h3.375v3.375M16.5 16.5V19.5m0-3.375h-3.375m3.375 0h3.375"></path></svg>
                         </div>
                         
                         <!-- Penangkapan Enter Kilat Menggunakan Alpine untuk Scan Mode (Kirim Langsung) dan Livewire Debounce untuk Cari Manual -->
@@ -499,7 +498,7 @@
                                                 
                                                 <!-- MUNCULKAN PLAT NOMOR SAAT DIPILIH (JIKA BENGKEL) -->
                                                 @if(data_get(filament()->getTenant()?->subscriptionPlan, 'code') === 'bengkel_motor' && !empty($customerInfo['vehicles']))
-                                                    • <span style="color: #f97316; font-weight: bold;">🏍️ {{ collect($customerInfo['vehicles'])->pluck('nomor_plat')->join(', ') }}</span>
+- <span style="color: #f97316; font-weight: bold;">🏍️ {{ collect($customerInfo['vehicles'])->pluck('nomor_plat')->join(', ') }}</span>
                                                 @endif
                                             </div>
                                         </div>
@@ -557,6 +556,15 @@
                                 </div>
                             @endif
                         @endif
+
+                    <!-- INPUT MEKANIK (OPSIONAL) -->
+                    <div style="margin-top: 0.75rem; padding: 0.5rem 1rem; border: 1px dashed var(--pos-border-strong); background: #f8fafc; border-radius: 8px;">
+                        <input type="text" 
+                            wire:model="mechanicName" 
+                            class="pos-customer-select" 
+                            placeholder="👨‍🔧 Ketik Nama Mekanik (Opsional)..." 
+                            style="border: none; background: transparent; width: 100%; outline: none; font-weight: 600;">
+                    </div>
                     </div>
                     
                     <!-- List Item Nota -->

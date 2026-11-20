@@ -63,6 +63,7 @@ class PosCashier extends Page
     public $paymentMethod = '';
     public $accountId = null;
     public $claimedRewards = [];
+    public $mechanicName = '';
 
     public function mount()
     {
@@ -1004,6 +1005,7 @@ class PosCashier extends Page
                     'company_id' => $companyId, 'outlet_id' => $outletId, 'user_id' => auth()->id(),
                     'pos_session_id' => ($company->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
                     'customer_id' => $this->customerId ?: null, 'account_id' => $this->accountId, 
+                    'mechanic_name' => $this->mechanicName ?: null,
                     'transaction_number' => $uniqueOrderId, 'type' => 'sale', 'in_out' => 'in', 'status' => 'pending',
                     'payment_method' => $this->paymentMethod, 'subtotal' => $this->getSubtotal(),
                     'discount' => $this->discount ?: 0, 'points_used' => $this->getTotalPointsUsed(),
@@ -1043,6 +1045,7 @@ class PosCashier extends Page
                 'company_id' => $companyId, 'outlet_id' => $outletId, 'user_id' => auth()->id(),
                 'pos_session_id' => (filament()->getTenant()->hasFeature('finance.closing_shift') && $this->activeSession) ? $this->activeSession->id : null,
                 'customer_id' => $this->customerId ?: null, 'account_id' => $this->accountId, 
+                'mechanic_name' => $this->mechanicName ?: null,
                 'transaction_number' => 'SALE-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(2))),
                 'type' => 'sale', 'in_out' => 'in', 'status' => 'completed',
                 'payment_method' => $this->paymentMethod, 'subtotal' => $this->getSubtotal(),
@@ -1072,7 +1075,7 @@ class PosCashier extends Page
             Notification::make()->title('Transaksi Berhasil!')->success()->send();
             $this->dispatch('open-receipt', url: route('pos.receipt', $newTrx->id));
             $this->dispatch('close-payment-modal'); 
-            $this->reset(['cart', 'discount', 'amountPaid', 'customerSearch', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost']);
+            $this->reset(['cart', 'discount', 'amountPaid', 'customerSearch', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost', 'mechanicName']);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -1091,7 +1094,7 @@ class PosCashier extends Page
 
             Notification::make()->title('Pembayaran QRIS Berhasil!')->success()->send();
             $this->dispatch('open-receipt', url: route('pos.receipt', $transaction->id));
-            $this->reset(['cart', 'discount', 'amountPaid', 'customerSearch', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost']);
+            $this->reset(['cart', 'discount', 'amountPaid', 'customerSearch', 'customerId', 'customerInfo', 'voucherCode', 'appliedVoucher', 'pointsToRedeem', 'paymentMethod', 'accountId', 'claimedRewards', 'customItemName', 'customItemPrice', 'customItemCost', 'mechanicName']);
         }
     }
 
