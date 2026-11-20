@@ -47,36 +47,36 @@
         .font-bold { font-weight: bold; }
         
         /* Garis Putus-Putus Khas Struk Kasir */
-        .divider { border-top: 1px dashed #000; margin: 6px 0; }
+        .divider { border-top: 1px dashed #000; margin: 8px 0; }
         
         table { width: 100%; border-collapse: collapse; }
-        td, th { vertical-align: top; padding: 1px 0; }
+        td, th { vertical-align: top; padding: 2px 0; }
         
         /* Area Header */
-        .header { margin-bottom: 10px; }
+        .header { margin-bottom: 8px; }
         .logo-container { margin-bottom: 5px; text-align: center; }
         .logo-container img { max-width: {{ $notaSize === 'A4' ? '120px' : '50px' }}; height: auto; } 
         
-        .header h2 { margin: 0 0 2px 0; font-size: 1.1em; font-weight: normal; }
-        .header p { margin: 1px 0; font-size: 0.85em; line-height: 1.2; }
+        .header h2 { margin: 0 0 2px 0; font-size: 1.15em; font-weight: bold; }
+        .header p { margin: 2px 0; font-size: 0.9em; line-height: 1.2; }
         
         /* Area Info Nota */
-        .info-table { font-size: 0.85em; margin-bottom: 2px; }
-        .info-table td { padding: 1px 0; }
+        .info-area { text-align: center; font-size: 0.85em; margin-bottom: 5px; }
+        .info-area p { margin: 2px 0; }
         
         /* Area Item */
-        .item-table th { border-bottom: 1px dashed #000; padding-bottom: 3px; font-weight: normal; font-size: 0.85em; }
+        .item-table th { font-weight: normal; font-size: 0.9em; padding-bottom: 5px; }
         .item-table td { font-size: 0.85em; }
-        .item-name { font-weight: bold; }
+        .item-name { font-weight: normal; text-transform: uppercase; }
         
         /* Area Ringkasan (Kasir Kiri, Subtotal Kanan) */
-        .summary-area { font-size: 0.85em; width: 100%; margin-top: 4px; }
-        .summary-area td { padding: 2px 0; }
+        .summary-area { font-size: 0.85em; width: 100%; margin-top: 2px; }
+        .summary-area td { padding: 3px 0; }
         
         /* Area History Cicilan */
         .history-table { font-size: 0.8em; margin-top: 5px; color: #333; }
         
-        .footer { margin-top: 15px; font-size: 0.8em; line-height: 1.3; text-align: center; }
+        .footer { margin-top: 10px; font-size: 0.8em; line-height: 1.3; text-align: center; }
     </style>
 </head>
 <body onload="window.print(); setTimeout(function(){ window.close(); }, 500);">
@@ -88,6 +88,7 @@
             </div>
         @endif
 
+        <!-- NAMA TOKO, ALAMAT, TELP DI TENGAH -->
         <h2>{{ $transaction->outlet->name ?? $company->name ?? 'Toko' }}</h2>
         
         @if(isset($transaction->outlet) && $transaction->outlet->address)
@@ -103,53 +104,41 @@
         @endif
     </div>
 
-    <!-- Info Nota & Tanggal (Format Rapi) -->
-    <table class="info-table">
-        <tr>
-            <td class="text-right" width="30%">No. Nota</td>
-            <td class="text-center" width="5%">:</td>
-            <td>{{ $transaction->transaction_number }}</td>
-        </tr>
-        <tr>
-            <td class="text-right">Tgl</td>
-            <td class="text-center">:</td>
-            <td>{{ $transaction->created_at->format('d-m-Y \J\a\m \: H:i') }}</td>
-        </tr>
+    <!-- INFO NOTA & TANGGAL (DI TENGAH) -->
+    <div class="info-area">
+        <p>No. Nota : {{ $transaction->transaction_number }}</p>
+        <p>Tgl : {{ $transaction->created_at->format('d-m-Y \J\a\m \: H:i') }}</p>
         @if($transaction->customer)
-        <tr>
-            <td class="text-right">Cust</td>
-            <td class="text-center">:</td>
-            <td>{{ $transaction->customer->name }}</td>
-        </tr>
+            <p>Cust : {{ $transaction->customer->name }}</p>
         @endif
-    </table>
+    </div>
 
     <div class="divider"></div>
 
-    <!-- Tabel Rincian Barang (Persis Foto) -->
+    <!-- TABEL RINCIAN BARANG -->
     <table class="item-table">
         <thead>
             <tr>
-                <th class="text-left" width="55%">Item</th>
-                <th class="text-center" width="15%">Qty</th>
+                <th class="text-left" width="50%">Item</th>
+                <th class="text-center" width="20%">Qty</th>
                 <th class="text-right" width="30%">Subtotal</th>
             </tr>
         </thead>
         <tbody>
             @foreach($transaction->items as $item)
                 <tr>
-                    <!-- Nama Barang (Full Width) -->
-                    <td colspan="3" style="padding-top: 4px;">
+                    <!-- Nama Barang -->
+                    <td colspan="3" style="padding-top: 5px;">
                         <span class="item-name">{{ $item->item_name ?? $item->product->name ?? 'Item Custom' }}</span>
                     </td>
                 </tr>
                 <tr>
-                    <!-- Satuan x Harga -->
-                    <td>
+                    <!-- Satuan x Harga | Qty | Subtotal -->
+                    <td style="padding-bottom: 5px;">
                         {{ $item->uom ? $item->uom->name . ' x ' : 'x ' }}{{ number_format($item->selling_price, 0, ',', '.') }}
                     </td>
-                    <td class="text-center">{{ $item->qty }}</td>
-                    <td class="text-right">{{ number_format($item->subtotal, 0, ',', '.') }}</td>
+                    <td class="text-center" style="padding-bottom: 5px;">{{ $item->qty }}</td>
+                    <td class="text-right" style="padding-bottom: 5px;">{{ number_format($item->subtotal, 0, ',', '.') }}</td>
                 </tr>
             @endforeach
         </tbody>
@@ -157,17 +146,17 @@
 
     <div class="divider"></div>
 
-    <!-- Area Ringkasan: Mekanik/Kasir (Kiri) & Angka (Kanan) -->
+    <!-- AREA RINGKASAN: KASIR/MEKANIK (KIRI) & ANGKA (KANAN) -->
     <table class="summary-area">
         <tr>
             <!-- Sisi Kiri -->
-            <td width="40%" style="vertical-align: top;">
+            <td width="45%" style="vertical-align: top;">
                 Kasir : {{ $transaction->user->name ?? 'Admin' }}<br><br>
                 Mekanik :<br>
-                {{ $transaction->mechanic->name ?? '-' }}
+                {{ strtoupper($transaction->mechanic_name ?? '-') }}
             </td>
             <!-- Sisi Kanan -->
-            <td width="60%" style="vertical-align: top;">
+            <td width="55%" style="vertical-align: top;">
                 <table width="100%">
                     <tr>
                         <td class="text-left">Subtotal</td>
@@ -181,7 +170,7 @@
                     <tr>
                         <td class="text-left">Diskon</td>
                         <td>:</td>
-                        <td class="text-right">{{ number_format($totalDiscount, 0, ',', '.') }}</td>
+                        <td class="text-right">{{ $totalDiscount > 0 ? number_format($totalDiscount, 0, ',', '.') : '0' }}</td>
                     </tr>
                     
                     <tr>
@@ -196,6 +185,9 @@
                         <td class="text-right">{{ number_format($transaction->amount_paid, 0, ',', '.') }}</td>
                     </tr>
                     
+                    <!-- Spasi Kosong Sebelum Kembalian Seperti Pada Gambar -->
+                    <tr><td colspan="3" style="height: 6px;"></td></tr>
+
                     <tr>
                         <td class="text-left">Kembalian</td>
                         <td>:</td>
@@ -217,9 +209,10 @@
         </tr>
     </table>
 
-    <!-- Riwayat Bayar DP / Cicilan (Muncul Jika Ada Lebih Dari 1 Kali Bayar) -->
+    <div class="divider"></div>
+
+    <!-- Riwayat Bayar DP / Cicilan (Tetap Dipertahankan) -->
     @if($transaction->payments && $transaction->payments->count() > 1)
-        <div class="divider"></div>
         <div style="font-size: 0.8em; font-weight: bold; margin-bottom: 2px;">Riwayat Cicilan/DP:</div>
         <table class="history-table">
             @foreach($transaction->payments as $payment)
@@ -229,9 +222,10 @@
             </tr>
             @endforeach
         </table>
+        <div class="divider"></div>
     @endif
 
-    <!-- Info Reward Poin (Opsional) -->
+    <!-- Info Reward Poin (Tetap Dipertahankan) -->
     @php
         $earnedPoint = \App\Models\PointHistory::where('reference_id', $transaction->transaction_number)
                             ->where('type', 'earn')
@@ -239,17 +233,16 @@
     @endphp
 
     @if($earnedPoint > 0 || ($transaction->customer && $transaction->customer->points_balance > 0))
-        <div class="divider"></div>
-        <div class="text-center" style="font-size: 0.8em; margin-top: 5px;">
+        <div class="text-center" style="font-size: 0.8em; margin-bottom: 5px;">
             @if($earnedPoint > 0)
                 Anda mendapat +{{ $earnedPoint }} Poin<br>
             @endif
             Sisa Poin: {{ number_format($transaction->customer->points_balance ?? 0, 0, ',', '.') }} Pts
         </div>
+        <div class="divider"></div>
     @endif
 
-    <div class="divider"></div>
-
+    <!-- FOOTER TEXT -->
     <div class="footer">
         Barang yang telah dibeli tidak dapat<br>
         dikembalikan kecuali ada perjanjian.<br>

@@ -292,6 +292,7 @@ class TransactionResource extends Resource
                         Select::make('user_id')
                             ->relationship('user', 'name')
                             ->label('Kasir / Dibuat Oleh'),
+                        TextInput::make('mechanic_name')->label('Mekanik'),
                         TextInput::make('points_used')->label('Penggunaan Point'),
 
                     ])
